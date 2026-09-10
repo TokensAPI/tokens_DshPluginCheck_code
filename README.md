@@ -52,15 +52,19 @@ npx @tokensapi/dsh-plugin-check --package @scope/name@1.2.3 --runtime 0.1.3-alph
 
 ## 会话内体检(装进 Cowork)
 
-本包同时是一个 Cowork 插件。装进宿主后会注册 `plugin_check` 工具,在会话里直接问"这个插件能装吗":
+本包同时是一个 Cowork 插件。装进宿主后会注册 `plugin_check` 工具,在会话里直接问"这个插件能装吗",不必记命令行:
 
 ```
+# 正在开发、还没发布的插件 —— 直接读工作区
+plugin_check(path="D:/code/my-plugin")
+
+# 已经发布到 npm 的包
 plugin_check(package="@scope/name", version="1.2.3")
 ```
 
-会话内跑的是**清单规则 + 包内补丁行检查**:工具会把已发布的 tarball 取下来,解出 `cordis.patch.yml` 真读补丁行——只看 registry 清单会漏掉"补丁行 `name` 写成 cordis 插件名而不是 npm 包名"这类装上即让整棵插件树崩溃的缺陷。取不到包时如实标注补丁未检查(warning),不会因网络问题把插件判成不合格。
+**发版前用 `path`**:读的是你本地的 `package.json` 与 `cordis.patch.yml`,不需要先 `npm publish`,改一行问一次都行。已发布的包用 `package`,跑的是**清单规则 + 包内补丁行检查**:工具会把已发布的 tarball 取下来,解出 `cordis.patch.yml` 真读补丁行——只看 registry 清单会漏掉"补丁行 `name` 写成 cordis 插件名而不是 npm 包名"这类装上即让整棵插件树崩溃的缺陷。取不到包时如实标注补丁未检查(warning),不会因网络问题把插件判成不合格。
 
-隔离启动冒烟无法在宿主进程里执行,完整体检仍走 CLI 或 Plugin Check workflow。
+隔离启动冒烟要装依赖、起子进程,不在宿主进程里执行;完整体检仍走 CLI 或 Plugin Check workflow。
 
 ## `dsh.engine` 字段
 
