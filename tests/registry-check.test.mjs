@@ -28,14 +28,15 @@ test('合格清单零 error', () => {
   assert.deepEqual(rules(findings, 'error'), [])
 })
 
-test('生命周期脚本/双内核/缺 bundle 逐条 error', () => {
+test('双内核/缺 bundle 判 error,生命周期脚本判 warning', () => {
   const findings = checkPublishedManifest({
     ...BASE,
     scripts: { postinstall: 'evil' },
     dependencies: { '@deepseek-ai/dsh-llm': '0.1.0' },
     dsh: { engine: BASE.dsh.engine },
   }, '0.1.3-alpha.1')
-  assert.deepEqual(rules(findings, 'error').sort(), ['M2-lifecycle', 'M3-core-peer', 'M4-bundle'])
+  assert.deepEqual(rules(findings, 'error').sort(), ['M3-core-peer', 'M4-bundle'])
+  assert.ok(rules(findings, 'warning').includes('M2-lifecycle'))
 })
 
 test('engine 不覆盖运行时是 error,peer 不含是 warning', () => {

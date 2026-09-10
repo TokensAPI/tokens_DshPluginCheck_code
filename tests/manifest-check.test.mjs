@@ -40,11 +40,12 @@ test('合格清单只剩 engine 待补的提示', () => {
   } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 
-test('生命周期脚本逐个拦截', () => {
+test('生命周期脚本逐个标注(受控安装已不再因此拒绝,故为 warning)', () => {
   const dir = fixture({ ...BASE, scripts: { postinstall: 'node evil.js', prepack: 'ok' } })
   try {
     const result = checkManifest(dir)
-    assert.deepEqual(rules(result, 'error'), ['M2-lifecycle'])
+    assert.deepEqual(rules(result, 'error'), [])
+    assert.ok(rules(result, 'warning').includes('M2-lifecycle'))
   } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 

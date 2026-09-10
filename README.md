@@ -32,16 +32,17 @@ npx @tokensapi/dsh-plugin-check --package @scope/name@1.2.3 --runtime 0.1.3-alph
 
 ## 规则清单
 
-每条规则都对应一种真实发生过的宿主故障。
+每条规则都对应一种真实发生过的宿主故障。**每条规则在判什么、为什么是这个级别、锚在上游哪一段代码,完整写在 [`docs/CHECKS.md`](docs/CHECKS.md)。**
 
 | 规则 | 级别 | 内容 | 拦的是什么事故 |
 |---|---|---|---|
+| C0-contract | warning | `--runtime` 不在本工具核对过的版本里时提示 | 拿过时的上游口径当结论 |
 | M1-manifest | error/warning | package.json 合法,name/version 齐全;预发布版本给出上架提示 | 无法入库 |
-| M2-lifecycle | error | 禁止 `preinstall/install/postinstall/prepare` 脚本(构建用 `prepack`) | 安装即执行任意代码;市场受控安装的既有红线 |
+| M2-lifecycle | warning | 不要声明 `preinstall/install/postinstall/prepare`(构建用 `prepack`) | 受控安装未加 `--ignore-scripts`:脚本要么在用户机器上执行任意代码,要么被包管理器默认策略拦下、脚本产物缺失导致装完即坏 |
 | M3-core-peer | error | `@deepseek-ai/cordis*`、`@deepseek-ai/dsh*` 只能是 peerDependencies | 双内核实例 → Symbol 不等 → 服务注册对不上 → **Cowork 启动失败** |
 | M4-bundle | error | `dsh.bundle.patch` 必填、文件存在、能解析出插件行 | 宿主无法把插件挂进加载树 |
 | M5-row-scope | error | 补丁行只能指向本包(或其子路径) | 插件行劫持挂载其他包 |
-| M6-engine | error/warning | `dsh.engine` 声明目标运行时 SemVer 范围;与 `--runtime` 不相交为 error(未声明当前为 warning,将转必填) | 装进不适配的宿主版本 |
+| M6-engine | error/warning | `dsh.engine` 声明目标运行时 SemVer 范围;与 `--runtime` 不相交为 error(未声明为 warning——上游目前不强制读取此字段) | 装进不适配的宿主版本 |
 | M7-peer-range | warning | 各 `dsh-*` peer 范围应包含目标运行时 | 宿主升级后接口错配,运行时断裂 |
 | M8-node-engines | warning | 建议声明 `engines.node`(宿主为 Node 22+) | 语法/API 不可用 |
 | M9-license | warning | 建议声明 license | 分发合规 |
@@ -49,6 +50,23 @@ npx @tokensapi/dsh-plugin-check --package @scope/name@1.2.3 --runtime 0.1.3-alph
 | S1-pack | error | `npm pack --ignore-scripts` 必须成功 | 包本身发布不出来 |
 | S2-install | error/warning | 按你声明的依赖必须装得出来;宿主内核包(`@deepseek-ai/*`)的内部版本在公开源取不到时降级为 warning 并跳过冒烟 | 用户受控安装会同样失败 |
 | S3/S4-apply | error | 每个补丁行:入口可解析、`import` 不抛、`ctx.plugin()` 应用不抛(声明 `inject` 等待服务注入属正常,不算失败) | **启动链击穿**——一行 import 失败会拖死整棵插件树 |
+
+## 适配的上游版本(契约基线)
+
+规则不是写法偏好,是照着**某个上游版本的真实行为**写下的判定。上游一变,这个检查器
+可能要改,也可能完全不用改 —— 所以基线是机器可读的,写在 `lib/contract.mjs`,并跟着
+每次体检结果一起输出:CLI 抬头一行、`--json` 的 `contract` 字段、会话内工具结果的
+`contract` 字段。
+
+```
+契约基线 2026-09-10 · desktop 2.0.5 / market 0.1.0-dev.0 · 已核对运行时 0.1.0-rc.8、0.1.3-alpha.1
+```
+
+`--runtime` 传了核对范围之外的版本,会多一条 **C0-contract** warning,明说"这个版本
+没核对过,结论可能过时或过严",不假装照样有效。
+
+每条规则锚在上游哪个文件/符号、上游升级后逐条怎么复核,见
+[`docs/CHECKS.md` §5](docs/CHECKS.md)。
 
 ## 会话内体检(装进 Cowork)
 
@@ -79,7 +97,8 @@ plugin_check(package="@scope/name", version="1.2.3")
 }
 ```
 
-宿主升级越过你的范围时,市场会把你的插件标记为"待适配"而不是硬载崩溃。
+这个字段目前**没有被上游强制读取**(2026-09-10 核对),它的作用是让体检能判断你与目标
+运行时是否相容:声明了,`--runtime` 越出范围时会直接报 error;不声明,这一层就判不了。
 
 ## CI 集成示例
 

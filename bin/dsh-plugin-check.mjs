@@ -18,6 +18,7 @@ import { resolve } from 'node:path'
 import { checkManifest } from '../lib/manifest-check.mjs'
 import { checkSmoke } from '../lib/smoke-check.mjs'
 import { fetchPackage } from '../lib/fetch-package.mjs'
+import { CONTRACT, contractLine, checkContractBaseline } from '../lib/contract.mjs'
 
 const args = process.argv.slice(2)
 const options = { dir: process.cwd(), package: undefined, runtime: undefined, skipSmoke: false, keepWorkspace: false, strict: false, json: false }
@@ -53,6 +54,9 @@ if (options.package !== undefined) {
   options.dir = fetched.dir
 }
 
+// C0 先跑:目标运行时没核对过时,后面所有结论都要打个折扣。
+findings.push(...checkContractBaseline(options.runtime))
+
 const manifestResult = checkManifest(options.dir, { runtime: options.runtime })
 findings.push(...manifestResult.findings)
 phases.push({ phase: 'manifest', findings: manifestResult.findings })
@@ -83,6 +87,7 @@ if (options.json) {
     plugin: manifestResult.manifest?.name,
     version: manifestResult.manifest?.version,
     runtime: options.runtime ?? null,
+    contract: CONTRACT,
     errors,
     warnings,
     phases,
@@ -95,6 +100,7 @@ const title = manifestResult.manifest?.name !== undefined
   : options.dir
 process.stdout.write(`\ndsh-plugin-check · ${title}\n`)
 if (options.runtime !== undefined) process.stdout.write(`目标运行时: ${options.runtime}\n`)
+process.stdout.write(`${contractLine()}\n`)
 process.stdout.write('\n')
 for (const finding of errors) process.stdout.write(`  ❌ [${finding.rule}] ${finding.message}\n`)
 for (const finding of warnings) process.stdout.write(`  ⚠️  [${finding.rule}] ${finding.message}\n`)
