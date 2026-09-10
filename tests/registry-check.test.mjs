@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { checkPublishedManifest, versionSatisfies } from '../lib/registry-check.mjs'
+import { checkPublishedManifest, checkPublishedPackage, versionSatisfies } from '../lib/registry-check.mjs'
 
 test('迷你 semver:或/且/插入符/波浪号/预发布', () => {
   assert.equal(versionSatisfies('0.1.3-alpha.1', '0.1.0-rc.8 || 0.1.3-alpha.1'), true)
@@ -54,4 +54,18 @@ test('本插件自己的清单必须零 error(自证)', async () => {
   )
   const findings = checkPublishedManifest(manifest, '0.1.3-alpha.1')
   assert.deepEqual(rules(findings, 'error'), [])
+})
+
+test('checkPublishedPackage:无 tarball 时如实标注补丁未检查', async () => {
+  const { findings, inspectedPatch } = await checkPublishedPackage(BASE, '0.1.3-alpha.1')
+  assert.equal(inspectedPatch, false)
+  assert.deepEqual(rules(findings, 'error'), [])
+})
+
+test('checkPublishedPackage:取包失败降级为 warning 而非判不合格', async () => {
+  const manifest = { ...BASE, dist: { tarball: 'https://127.0.0.1:1/nope.tgz' } }
+  const { findings, inspectedPatch } = await checkPublishedPackage(manifest, '0.1.3-alpha.1', { timeoutMs: 2000 })
+  assert.equal(inspectedPatch, false)
+  assert.deepEqual(rules(findings, 'error'), [])
+  assert.equal(findings.some(f => f.level === 'warning' && f.rule === 'M4-bundle'), true)
 })

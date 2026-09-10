@@ -47,8 +47,20 @@ npx @tokensapi/dsh-plugin-check --package @scope/name@1.2.3 --runtime 0.1.3-alph
 | M9-license | warning | 建议声明 license | 分发合规 |
 | M10-secrets | error/warning | 发布内容不得包含 `.env`、私钥等凭据样式文件 | 凭据泄露 |
 | S1-pack | error | `npm pack --ignore-scripts` 必须成功 | 包本身发布不出来 |
-| S2-install | error | 按你声明的依赖必须装得出来 | 用户受控安装会同样失败 |
+| S2-install | error/warning | 按你声明的依赖必须装得出来;宿主内核包(`@deepseek-ai/*`)的内部版本在公开源取不到时降级为 warning 并跳过冒烟 | 用户受控安装会同样失败 |
 | S3/S4-apply | error | 每个补丁行:入口可解析、`import` 不抛、`ctx.plugin()` 应用不抛(声明 `inject` 等待服务注入属正常,不算失败) | **启动链击穿**——一行 import 失败会拖死整棵插件树 |
+
+## 会话内体检(装进 Cowork)
+
+本包同时是一个 Cowork 插件。装进宿主后会注册 `plugin_check` 工具,在会话里直接问"这个插件能装吗":
+
+```
+plugin_check(package="@scope/name", version="1.2.3")
+```
+
+会话内跑的是**清单规则 + 包内补丁行检查**:工具会把已发布的 tarball 取下来,解出 `cordis.patch.yml` 真读补丁行——只看 registry 清单会漏掉"补丁行 `name` 写成 cordis 插件名而不是 npm 包名"这类装上即让整棵插件树崩溃的缺陷。取不到包时如实标注补丁未检查(warning),不会因网络问题把插件判成不合格。
+
+隔离启动冒烟无法在宿主进程里执行,完整体检仍走 CLI 或 Plugin Check workflow。
 
 ## `dsh.engine` 字段
 
