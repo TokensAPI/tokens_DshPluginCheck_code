@@ -61,19 +61,30 @@ const manifestResult = checkManifest(options.dir, { runtime: options.runtime })
 findings.push(...manifestResult.findings)
 phases.push({ phase: 'manifest', findings: manifestResult.findings })
 
-let smokeSkipped = true
-if (!options.skipSmoke
-  && manifestResult.manifest !== undefined
-  && manifestResult.rows !== undefined
-  && !manifestResult.findings.some(finding => finding.level === 'error')) {
-  smokeSkipped = false
+/**
+ * 冒烟跳过的**真实**原因。以前无论因为什么跳过都打印"清单体检存在
+ * error",作者拿着一份 0 error 的报告被告知有 error,只能干瞪眼。
+ * @returns {string | undefined} 不跳过时返回 undefined。
+ */
+function smokeSkipReason() {
+  if (options.skipSmoke) return '按 --skip-smoke 跳过'
+  if (manifestResult.manifest === undefined) return '读不到 package.json,清单体检未完成'
+  if (manifestResult.findings.some(finding => finding.level === 'error')) return '清单体检存在 error,冒烟不再执行'
+  if (manifestResult.rows === undefined) return 'dsh.bundle.patch 缺失或补丁文件读不到,没有可冒烟的插件行'
+  if (manifestResult.rows.length === 0) return '补丁未声明任何插件行,没有可冒烟的对象'
+  return undefined
+}
+
+const skipReason = smokeSkipReason()
+const smokeSkipped = skipReason !== undefined
+if (!smokeSkipped) {
   const smokeResult = checkSmoke(options.dir, manifestResult.manifest, manifestResult.rows, {
     keepWorkspace: options.keepWorkspace,
   })
   findings.push(...smokeResult.findings)
   phases.push({ phase: 'smoke', findings: smokeResult.findings, workspace: smokeResult.workspace })
 } else if (!options.skipSmoke) {
-  phases.push({ phase: 'smoke', skipped: '清单体检存在 error,冒烟不再执行' })
+  phases.push({ phase: 'smoke', skipped: skipReason })
 }
 
 const errors = findings.filter(finding => finding.level === 'error')
@@ -90,6 +101,7 @@ if (options.json) {
     contract: CONTRACT,
     errors,
     warnings,
+    infos,
     phases,
   }, undefined, 2)}\n`)
   process.exit(failed ? 1 : 0)
@@ -108,11 +120,7 @@ for (const finding of infos) process.stdout.write(`  ✅ ${finding.message}
 `)
 if (findings.length === 0) process.stdout.write('  全部规则通过\n')
 process.stdout.write('\n')
-if (smokeSkipped && !options.skipSmoke && errors.length > 0) {
-  process.stdout.write('清单存在 error,隔离冒烟未执行;修复后重跑。\n')
-} else if (options.skipSmoke) {
-  process.stdout.write('已按 --skip-smoke 跳过隔离冒烟。\n')
-}
+if (smokeSkipped) process.stdout.write(`隔离冒烟未执行:${skipReason}。\n`)
 process.stdout.write(failed
   ? `结论: 不合格(${errors.length} error / ${warnings.length} warning)\n`
   : `结论: 合格(0 error / ${warnings.length} warning)\n`)

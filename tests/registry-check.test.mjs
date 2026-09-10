@@ -2,7 +2,10 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { checkPublishedManifest, checkPublishedPackage, versionSatisfies } from '../lib/registry-check.mjs'
 
-test('迷你 semver:或/且/插入符/波浪号/预发布', () => {
+// versionSatisfies 曾是本模块自带的手写实现,现在只是 semver-rules 的
+// 再导出;这些断言留着,是为了证明换实现之后既有对外语义一字未变。
+// 发散用例(">=1.2"、"1.x"、连字符…)在 tests/semver-rules.test.mjs。
+test('versionSatisfies 的既有语义:或/且/插入符/波浪号/预发布', () => {
   assert.equal(versionSatisfies('0.1.3-alpha.1', '0.1.0-rc.8 || 0.1.3-alpha.1'), true)
   assert.equal(versionSatisfies('0.1.3-alpha.1', '>=0.1.0-rc.8 <0.2.0'), true)
   assert.equal(versionSatisfies('0.1.3-alpha.1', '>=0.1.0 <0.1.2'), false)

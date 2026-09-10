@@ -28,7 +28,7 @@ npx @tokensapi/dsh-plugin-check --package @scope/name@1.2.3 --runtime 0.1.3-alph
 **阶段① 清单体检**(纯静态、离线、秒级):检查 package.json 与 cordis 补丁的声明是否合规。
 **阶段② 隔离启动冒烟**(联网、约 1–3 分钟):在临时工作区按你声明的 peer 范围装出真实运行时,然后逐补丁行做真实网关启动时做的事——解析入口 → `import` → `new Context()` + `ctx.plugin()` 应用。三段都过,你的插件就不会以"装上即崩"的方式杀死用户的 Cowork。全程 `--ignore-scripts`,你的代码只在一次性子进程里运行,超时即杀。
 
-清单存在 error 时冒烟不执行——先修再跑。
+清单存在 error 时冒烟不执行——先修再跑。跳过冒烟时输出会说明**真实原因**(清单有 error / 补丁没有可用行 / 读不到 package.json / `--skip-smoke`),不会拿一个笼统的理由搪塞。
 
 ## 规则清单
 
@@ -37,16 +37,18 @@ npx @tokensapi/dsh-plugin-check --package @scope/name@1.2.3 --runtime 0.1.3-alph
 | 规则 | 级别 | 内容 | 拦的是什么事故 |
 |---|---|---|---|
 | C0-contract | warning | `--runtime` 不在本工具核对过的版本里时提示 | 拿过时的上游口径当结论 |
-| M1-manifest | error/warning | package.json 合法,name/version 齐全;预发布版本给出上架提示 | 无法入库 |
+| M1-manifest | error/warning | package.json 合法,name/version 齐全且包名满足市场约束(不在上游黑名单里);预发布版本给出上架提示 | 无法入库 |
 | M2-lifecycle | warning | 不要声明 `preinstall/install/postinstall/prepare`(构建用 `prepack`) | 受控安装未加 `--ignore-scripts`:脚本要么在用户机器上执行任意代码,要么被包管理器默认策略拦下、脚本产物缺失导致装完即坏 |
 | M3-core-peer | error | `@deepseek-ai/cordis*`、`@deepseek-ai/dsh*` 只能是 peerDependencies | 双内核实例 → Symbol 不等 → 服务注册对不上 → **Cowork 启动失败** |
-| M4-bundle | error | `dsh.bundle.patch` 必填、文件存在、能解析出插件行 | 宿主无法把插件挂进加载树 |
+| M4-bundle | error | `dsh.bundle.patch` 必填、文件存在、能解析出插件行,且路径形状满足上游 `safeBundlePatch`(相对路径、无反斜杠、无 `..`、段内无冒号、≤512 字节) | 宿主无法把插件挂进加载树;形状不合规则受控安装验证器直接拒绝,用户端只剩手动命令 |
 | M5-row-scope | error | 补丁行只能指向本包(或其子路径) | 插件行劫持挂载其他包 |
 | M6-engine | error/warning | `dsh.engine` 声明目标运行时 SemVer 范围;与 `--runtime` 不相交为 error(未声明为 warning——上游目前不强制读取此字段) | 装进不适配的宿主版本 |
-| M7-peer-range | warning | 各 `dsh-*` peer 范围应包含目标运行时 | 宿主升级后接口错配,运行时断裂 |
-| M8-node-engines | warning | 建议声明 `engines.node`(宿主为 Node 22+) | 语法/API 不可用 |
+| M7-peer-range | error/warning | 核心 peer(`@deepseek-ai/cordis*`、`@deepseek-ai/dsh*`)的范围必须合法;`dsh-*` 的范围应包含目标运行时 | 范围写坏则受控安装装不出来;不含目标运行时则宿主升级后接口错配 |
+| M8-node-engines | warning | 建议声明 `engines.node`,且要与宿主的 `^22.19.0 \|\| >=24.0.0` 有交集 | 语法/API 不可用;无交集则安装阶段报 unsupported engine |
 | M9-license | warning | 建议声明 license | 分发合规 |
 | M10-secrets | error/warning | 发布内容不得包含 `.env`、私钥等凭据样式文件 | 凭据泄露 |
+| M11-row-identity | error | 补丁行 `id` 同层不得重复、不得含 `:`、不得占用宿主保留 id(`settings`、`web-runtime` 等) | **重复 id 会让用户整个 Desktop 起不来**;而市场安装装完从不重新解析补丁、也没有回滚,一路绿灯装上、下次开机才炸 |
+| M12-client | error/warning | 声明 `dsh.client` 时,字段形状与 `exports["./client"]` 必须成立 | 宿主构造期同步解析,一份写坏会让整个 client-modules 失败——**同宿主其他插件的前端模块一起挂** |
 | S1-pack | error | `npm pack --ignore-scripts` 必须成功 | 包本身发布不出来 |
 | S2-install | error/warning | 按你声明的依赖必须装得出来;宿主内核包(`@deepseek-ai/*`)的内部版本在公开源取不到时降级为 warning 并跳过冒烟 | 用户受控安装会同样失败 |
 | S3/S4-apply | error | 每个补丁行:入口可解析、`import` 不抛、`ctx.plugin()` 应用不抛(声明 `inject` 等待服务注入属正常,不算失败) | **启动链击穿**——一行 import 失败会拖死整棵插件树 |

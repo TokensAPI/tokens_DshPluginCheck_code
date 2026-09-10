@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { checkManifest } from '../lib/manifest-check.mjs'
+import { checkManifest, checkManifestFields } from '../lib/manifest-check.mjs'
 
 const GOOD_PATCH = `- insert:
     - id: fixture-plugin
@@ -106,4 +106,25 @@ test('files 白名单里的凭据样式文件被拒', () => {
   try {
     assert.ok(rules(checkManifest(dir), 'error').includes('M10-secrets'))
   } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+// ---- M4:补丁路径形状(逐字对齐上游 safeBundlePatch) --------------
+// 这些写法 0.3.4 全部放行:包能装、能跑、体检全绿,但市场受控安装的
+// 验证器一律拒绝 —— 用户端永远只看到手动安装命令。
+const patchRules = patch => checkManifestFields({ ...BASE, dsh: { bundle: { patch } } }, undefined)
+  .filter(finding => finding.rule === 'M4-bundle')
+
+test('M4:上游会拒的补丁路径形状一律判 error', () => {
+  const bad = ['../outside/patch.yml', '/abs/patch.yml', 'dist\\patch.yml', './a//b.yml', './c:/patch.yml', `./${'x'.repeat(600)}.yml`]
+  for (const patch of bad) {
+    const findings = patchRules(patch)
+    assert.equal(findings.length, 1, `patch=${patch}`)
+    assert.equal(findings[0].level, 'error', `patch=${patch}`)
+  }
+})
+
+test('M4:合法形状放行,包括不带 ./ 前缀与多层嵌套', () => {
+  for (const patch of ['./cordis.patch.yml', 'cordis.patch.yml', './deep/nested/ok.yml']) {
+    assert.deepEqual(patchRules(patch), [], `patch=${patch}`)
+  }
 })
