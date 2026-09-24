@@ -34,6 +34,9 @@
     "semver": "^7.6.0"
   },
   "license": "MIT",
+  "publishConfig": {
+    "registry": "https://npm.tokensapi.ai/"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/TokensAPI/tokens_DshPluginCheck_code.git"

@@ -1,0 +1,129 @@
+# Publishes the package to the private registry at npm.tokensapi.ai.
+#
+# Pushing a `v*` tag is the only release path: there is no manual trigger, so a
+# version can never be published twice in parallel. To retry a failed release,
+# re-run this workflow from the Actions tab.
+#
+# The check job here is deliberate, not a duplicate of checks.yml. `needs:`
+# cannot span workflows, so a release gates on checks it runs itself. checks.yml
+# ignores tags, so nothing runs twice.
+name: Publish to private npm
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # A release must never be cancelled halfway through publishing.
+  cancel-in-progress: false
+
+env:
+  NPM_REGISTRY: https://npm.tokensapi.ai/
+
+jobs:
+  check:
+    name: Test on Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # Covers the engines range in package.json (>=22.0.0).
+        node: [22, 24]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Run tests
+        run: npm test
+
+  publish:
+    name: Publish to private npm
+    # Every supported Node version must pass before a tag can ship.
+    needs: check
+    # The tag trigger already guarantees this; kept so a stray trigger cannot
+    # reach the publish step.
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          registry-url: https://npm.tokensapi.ai/
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --registry=https://registry.npmjs.org/
+
+      - name: Validate release identity
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node scripts/validate-release.mjs "$RELEASE_TAG"
+
+      - name: Refuse fork publishing
+        run: |
+          if [ "$GITHUB_REPOSITORY" != 'TokensAPI/tokens_DshPluginCheck_code' ]; then
+            echo 'Release publishing is enabled only for the canonical repository; this fork run remains check-only.' >&2
+            exit 1
+          fi
+
+      - name: Pack verified release
+        run: |
+          mkdir -p .release
+          npm pack --pack-destination .release --ignore-scripts
+
+      - name: Publish to private npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.VERDACCIO_PUBLISH_TOKEN }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo 'Configure the VERDACCIO_PUBLISH_TOKEN repository secret before releasing.' >&2
+            exit 1
+          fi
+          publisher="$(npm whoami --registry="$NPM_REGISTRY")"
+          if [ "$publisher" != 'tokenscowork' ]; then
+            echo 'The registry token does not belong to the approved publisher tokenscowork.' >&2
+            exit 1
+          fi
+          package_name="$(node -p "require('./package.json').name")"
+          package_version="$(node -p "require('./package.json').version")"
+          # An unreachable or unauthorized registry must abort instead of reading
+          # as "this version is not published yet".
+          set +e
+          view_output="$(npm view "$package_name@$package_version" version --registry="$NPM_REGISTRY" 2>&1)"
+          view_status=$?
+          set -e
+          if [ "$view_status" -eq 0 ]; then
+            echo "Refusing to overwrite already published $package_name@$package_version." >&2
+            exit 1
+          fi
+          case "$view_output" in
+            *E404*|*'404 Not Found'*)
+              ;;
+            *)
+              echo "Cannot confirm that $package_name@$package_version is unpublished; refusing to publish." >&2
+              echo "$view_output" >&2
+              exit 1
+              ;;
+          esac
+          npm publish .release/*.tgz --ignore-scripts --registry="$NPM_REGISTRY" --tag=latest
+          npm view "$package_name@$package_version" version --registry="$NPM_REGISTRY"
