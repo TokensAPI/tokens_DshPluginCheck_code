@@ -5,6 +5,8 @@
 
 ## [未发布]
 
+## [0.4.2] - 2026-09-24
+
 ### 新增
 
 - `M13-tests`(warning）：仓库要有可跑的测试——`scripts.test` 非 `npm init`
@@ -32,5 +34,6 @@
 
 首个发布到私有源的版本（手工发布）。此前版本的改动见提交历史。
 
-[未发布]: https://github.com/TokensAPI/tokens_DshPluginCheck_code/compare/v0.4.1...HEAD
+[未发布]: https://github.com/TokensAPI/tokens_DshPluginCheck_code/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/TokensAPI/tokens_DshPluginCheck_code/releases/tag/v0.4.2
 [0.4.1]: https://github.com/TokensAPI/tokens_DshPluginCheck_code/releases/tag/v0.4.1
