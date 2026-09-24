@@ -2,6 +2,16 @@
   "name": "@tokensapi/dsh-plugin-check",
   "version": "0.4.0",
   "description": "TokensCowork/DSH 插件合格性体检:CLI 一条命令判定插件能否安全装入宿主;装入 Cowork 后提供会话内 plugin_check 工具。",
+  "tokenscowork": {
+    "displayName": {
+      "zh-CN": "插件体检",
+      "en-US": "Plugin Check"
+    },
+    "summary": {
+      "zh-CN": "一条命令判定插件包能否安全装入宿主;装入 Cowork 后提供会话内 plugin_check 工具。",
+      "en-US": "Decide in one command whether a plugin package is safe for the host to load, and expose a plugin_check tool inside the session once installed."
+    }
+  },
   "type": "module",
   "bin": {
     "dsh-plugin-check": "bin/dsh-plugin-check.mjs"
