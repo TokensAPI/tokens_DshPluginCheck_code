@@ -57,7 +57,11 @@ if (options.package !== undefined) {
 // C0 先跑:目标运行时没核对过时,后面所有结论都要打个折扣。
 findings.push(...checkContractBaseline(options.runtime))
 
-const manifestResult = checkManifest(options.dir, { runtime: options.runtime })
+// workspace:--package 拿到的是解包目录,不是工作区,M13 在那里必然误报。
+const manifestResult = checkManifest(options.dir, {
+  runtime: options.runtime,
+  workspace: options.package === undefined,
+})
 findings.push(...manifestResult.findings)
 phases.push({ phase: 'manifest', findings: manifestResult.findings })
 

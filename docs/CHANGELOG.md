@@ -5,6 +5,13 @@
 
 ## [未发布]
 
+### 新增
+
+- `M13-tests`(warning）：仓库要有可跑的测试——`scripts.test` 非 `npm init`
+  占位命令，且目录里确有测试文件（找 `test/`、`tests/`、`__tests__/`、`spec/`
+  及源码内 `*.test.*` / `*.spec.*`）。只在能看到工作区的路径上跑：`--package`
+  的解包目录和会话内 `package=` 模式都不判，因为 `tests/` 不进 tarball。
+
 ## [0.4.1] - 2026-09-24
 
 ### 新增

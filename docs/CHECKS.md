@@ -38,10 +38,10 @@
 
 | 入口 | 拿到的是什么 | 跑哪些规则 |
 | --- | --- | --- |
-| CLI `dsh-plugin-check [目录]` | 本地工作区文件 | M1–M12 + S1–S4(完整) |
-| CLI `--package <name@ver>` | `npm pack` 下载并解包的目录 | M1–M12 + S1–S4(完整) |
-| 会话内 `plugin_check(path=…)` | 本地工作区文件 | M1–M12 |
-| 会话内 `plugin_check(package=…)` | registry 版本清单 + tarball 里抽出的 `cordis.patch.yml` | M1–M12(除 M10) |
+| CLI `dsh-plugin-check [目录]` | 本地工作区文件 | M1–M13 + S1–S4(完整) |
+| CLI `--package <name@ver>` | `npm pack` 下载并解包的目录 | M1–M13 + S1–S4(除 M13,解包目录里没有 `tests/`) |
+| 会话内 `plugin_check(path=…)` | 本地工作区文件 | M1–M13 |
+| 会话内 `plugin_check(package=…)` | registry 版本清单 + tarball 里抽出的 `cordis.patch.yml` | M1–M13(除 M10、M13) |
 
 会话内不跑冒烟:冒烟要装依赖、起子进程、执行被测插件代码,这些不能发生在用户的
 Cowork 宿主进程里。所以会话内的结论只覆盖清单侧,输出里的 `note` 会如实说明这
@@ -62,8 +62,10 @@ Cowork 宿主进程里。所以会话内的结论只覆盖清单侧,输出里的
 插件判成合格;注册表侧还自带一套手写迷你 SemVer,把 `>=1.2`、`1.x`、`1.2.0 - 2.0.0`
 这些完全合法的 npm 范围判成「不可识别」→ error,合格插件被判不合格。
 
-**唯一允许的差异是 M10-secrets**:它要扫工作区文件,registry 路径根本没有工作区。
-这是有意的取舍,不是漏。
+**允许的差异只有要看工作区才能判的那两条:M10-secrets 和 M13-tests**。registry
+路径根本没有工作区,而 `tests/` 按惯例被 `files` 白名单挡在 tarball 之外,连解包目录
+里都没有。这是有意的取舍,不是漏 —— 反过来说,**这两条不报不等于合格**,只说明这条
+路径看不见。
 
 ---
 
@@ -236,6 +238,18 @@ Cowork 宿主进程里。所以会话内的结论只覆盖清单侧,输出里的
   自引用检查(`:454-461`)、`platform === 'web'` 过滤(`:756`)、
   缺 `./client` 的抛出(`:760-763`)。
 - 没有 `dsh.client` 的插件(绝大多数)完全不产生任何发现。
+
+### M13-tests — 仓库要有测试
+
+- **warning**:`scripts.test` 未声明,或仍是 `npm init` 留下的 `no test specified`
+  占位命令 —— 存在但跑起来必然失败,等同于没有。
+- **warning**:`scripts.test` 已声明,但目录里找不到任何测试文件。找 `test/`、
+  `tests/`、`__tests__/`、`spec/` 四个常见目录,以及源码里的 `*.test.*` /
+  `*.spec.*`(下探两层,跳过 `node_modules` 和点开头目录)。目录位置不强制,
+  但两者都要有:只有命令没有用例,CI 绿灯是空的。
+- 判 **warning** 不判 error:有没有测试不影响这个包能不能装进宿主,跟 M8/M9
+  同级。判 error 会把大量能正常工作的插件挡在市场门外,与 §6 的级别定义冲突。
+- 只在能看到工作区的路径上跑,理由见 §1。
 
 ---
 

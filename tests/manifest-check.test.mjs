@@ -108,6 +108,61 @@ test('files 白名单里的凭据样式文件被拒', () => {
   } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 
+// ---- M13:有没有测试 ------------------------------------------
+// 只影响仓库能不能自证改动没坏,不影响能不能装入宿主,所以与 M9-license
+// 同级判 warning。判 error 会把合格插件挡在市场门外。
+
+const m13 = dir => rules(checkManifest(dir), 'warning').filter(rule => rule === 'M13-tests')
+
+test('M13:没有 scripts.test 判 warning', () => {
+  const dir = fixture(BASE)
+  try {
+    assert.deepEqual(m13(dir), ['M13-tests'])
+    assert.deepEqual(rules(checkManifest(dir), 'error'), [])
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('M13:npm init 的占位命令等同于没有测试', () => {
+  const dir = fixture({ ...BASE, scripts: { test: 'echo "Error: no test specified" && exit 1' } })
+  try {
+    assert.deepEqual(m13(dir), ['M13-tests'])
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('M13:有命令但目录里没有测试文件,仍判 warning', () => {
+  const dir = fixture({ ...BASE, scripts: { test: 'node --test' } })
+  try {
+    assert.deepEqual(m13(dir), ['M13-tests'])
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('M13:命令与测试文件都在则不报;常见目录和源码内后缀都认', () => {
+  for (const place of [['tests', 'a.test.mjs'], ['__tests__', 'b.spec.ts'], ['src', 'c.test.js']]) {
+    const dir = fixture({ ...BASE, scripts: { test: 'node --test' } })
+    try {
+      mkdirSync(join(dir, place[0]), { recursive: true })
+      writeFileSync(join(dir, place[0], place[1]), '')
+      assert.deepEqual(m13(dir), [], `${place[0]}/${place[1]} 应被认作测试文件`)
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  }
+})
+
+test('M13:解包目录(--package)不判,tests/ 本来就不在包里', () => {
+  const dir = fixture({ ...BASE, scripts: { test: 'node --test' } })
+  try {
+    assert.deepEqual(rules(checkManifest(dir, { workspace: false }), 'warning').filter(r => r === 'M13-tests'), [])
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+test('M13:node_modules 里的测试文件不算数', () => {
+  const dir = fixture({ ...BASE, scripts: { test: 'node --test' } })
+  try {
+    mkdirSync(join(dir, 'node_modules', 'dep'), { recursive: true })
+    writeFileSync(join(dir, 'node_modules', 'dep', 'x.test.js'), '')
+    assert.deepEqual(m13(dir), ['M13-tests'])
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
 // ---- M4:补丁路径形状(逐字对齐上游 safeBundlePatch) --------------
 // 这些写法 0.3.4 全部放行:包能装、能跑、体检全绿,但市场受控安装的
 // 验证器一律拒绝 —— 用户端永远只看到手动安装命令。

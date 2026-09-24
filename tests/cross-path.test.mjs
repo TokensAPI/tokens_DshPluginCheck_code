@@ -7,8 +7,9 @@
  * error。这份测试是"不许再漂"的闸门:凡是只看清单就能判的规则,两边
  * 必须逐条一致。
  *
- * 唯一允许的差异是 M10-secrets:它要扫工作区文件,registry 路径没有
- * 工作区。这是有意的,写在 docs/CHECKS.md §1,也在这里显式豁免。
+ * 允许的差异只有"要看工作区才能判"的那几条(M10-secrets、M13-tests):
+ * registry 路径没有工作区。这是有意的,写在 docs/CHECKS.md §1,也在这里
+ * 显式豁免。
  * ============================================================ */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -26,11 +27,12 @@ const patchFor = manifest => `- insert:
 
 /**
  * 只看清单就能判的规则集之外的两类,不参与对拍:
- *  - M10-secrets 要扫工作区文件,registry 路径没有工作区;
+ *  - M10-secrets 要扫工作区文件,M13-tests 要看 tests/ 与 scripts.test,
+ *    而 tests/ 不进 tarball,registry 路径两者都看不到;
  *  - M5-row-scope / M11-row-identity 要读补丁内容,registry 路径靠
  *    checkPublishedPackage 取 tarball 才有,checkPublishedManifest 不含。
  */
-const DISK_ONLY = new Set(['M10-secrets', 'M5-row-scope', 'M11-row-identity'])
+const DISK_ONLY = new Set(['M10-secrets', 'M13-tests', 'M5-row-scope', 'M11-row-identity'])
 
 const comparable = findings => findings
   .filter(f => !DISK_ONLY.has(f.rule))
