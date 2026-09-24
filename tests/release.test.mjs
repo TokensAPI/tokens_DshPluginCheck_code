@@ -37,10 +37,10 @@ test('当前清单与自身版本标签互相匹配', () => {
 
 test('校验器拒绝标签不一致、预发布、错误仓库和错误 Registry', () => {
   assert.match(validateRelease('v9.9.9', manifest)[0], /不一致/u)
-  assert.match(validateRelease('0.4.0', manifest)[0], /标签必须形如/u)
+  assert.match(validateRelease(manifest.version, manifest)[0], /标签必须形如/u)
   assert.match(validateRelease('v1.0.0-rc.1', {...manifest, version: '1.0.0-rc.1'})[0], /预发布版本/u)
-  assert.match(validateRelease('v0.4.0', {...manifest, repository: {url: 'https://github.com/Someone/other.git'}})[0], /仓库身份不符/u)
-  assert.match(validateRelease('v0.4.0', {...manifest, publishConfig: {registry: 'https://registry.npmjs.org/'}})[0], /publishConfig\.registry/u)
+  assert.match(validateRelease(`v${manifest.version}`, {...manifest, repository: {url: 'https://github.com/Someone/other.git'}})[0], /仓库身份不符/u)
+  assert.match(validateRelease(`v${manifest.version}`, {...manifest, publishConfig: {registry: 'https://registry.npmjs.org/'}})[0], /publishConfig\.registry/u)
 })
 
 test('检查工作流只吃分支与 PR,不发布', () => {

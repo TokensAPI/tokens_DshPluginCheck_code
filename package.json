@@ -1,6 +1,6 @@
 {
   "name": "@tokensapi/dsh-plugin-check",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "TokensCowork/DSH 插件合格性体检:CLI 一条命令判定插件能否安全装入宿主;装入 Cowork 后提供会话内 plugin_check 工具。",
   "tokenscowork": {
     "displayName": {
