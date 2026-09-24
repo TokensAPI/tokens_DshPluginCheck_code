@@ -38,10 +38,13 @@
 
 | 入口 | 拿到的是什么 | 跑哪些规则 |
 | --- | --- | --- |
-| CLI `dsh-plugin-check [目录]` | 本地工作区文件 | M1–M13 + S1–S4(完整) |
-| CLI `--package <name@ver>` | `npm pack` 下载并解包的目录 | M1–M13 + S1–S4(除 M13,解包目录里没有 `tests/`) |
-| 会话内 `plugin_check(path=…)` | 本地工作区文件 | M1–M13 |
-| 会话内 `plugin_check(package=…)` | registry 版本清单 + tarball 里抽出的 `cordis.patch.yml` | M1–M13(除 M10、M13) |
+| CLI `dsh-plugin-check [目录]` | 本地工作区文件 | M1–M16 + S1–S4(完整) |
+| CLI `--package <name@ver>` | `npm pack` 下载并解包的目录 | M1–M16 + S1–S4(除 M13,解包目录里没有 `tests/`) |
+| 会话内 `plugin_check(path=…)` | 本地工作区文件 | M1–M16 |
+| 会话内 `plugin_check(package=…)` | registry 版本清单 + tarball 里抽出的 `cordis.patch.yml` | M1–M16(除 M10、M13、M16) |
+
+M16 在解包目录里照判:`LICENSE` 被 npm 无条件打进 tarball,不受 `files` 白名单影响,
+所以「声明了 license 却没有正文」这件事在包里也看得见。
 
 会话内不跑冒烟:冒烟要装依赖、起子进程、执行被测插件代码,这些不能发生在用户的
 Cowork 宿主进程里。所以会话内的结论只覆盖清单侧,输出里的 `note` 会如实说明这
@@ -62,10 +65,14 @@ Cowork 宿主进程里。所以会话内的结论只覆盖清单侧,输出里的
 插件判成合格;注册表侧还自带一套手写迷你 SemVer,把 `>=1.2`、`1.x`、`1.2.0 - 2.0.0`
 这些完全合法的 npm 范围判成「不可识别」→ error,合格插件被判不合格。
 
-**允许的差异只有要看工作区才能判的那两条:M10-secrets 和 M13-tests**。registry
-路径根本没有工作区,而 `tests/` 按惯例被 `files` 白名单挡在 tarball 之外,连解包目录
-里都没有。这是有意的取舍,不是漏 —— 反过来说,**这两条不报不等于合格**,只说明这条
-路径看不见。
+**允许的差异只有要看文件才能判的那三条:M10-secrets、M13-tests、M16-license-file**。
+registry 路径根本没有文件;M13 还更窄一层,`tests/` 按惯例被 `files` 白名单挡在 tarball
+之外,连解包目录里都没有。这是有意的取舍,不是漏 —— 反过来说,**这三条不报不等于
+合格**,只说明这条路径看不见。
+
+反向的约束同样成立:**只看清单就能判的新规则必须落在 `checkManifestFields` 里**
+(M14、M15 就是这么加的),对拍会自动成立。如果新加一条规则让 `cross-path.test.mjs`
+红了,先问它是不是本该共用实现,而不是先去改豁免名单。
 
 ---
 
@@ -250,6 +257,38 @@ Cowork 宿主进程里。所以会话内的结论只覆盖清单侧,输出里的
 - 判 **warning** 不判 error:有没有测试不影响这个包能不能装进宿主,跟 M8/M9
   同级。判 error 会把大量能正常工作的插件挡在市场门外,与 §6 的级别定义冲突。
 - 只在能看到工作区的路径上跑,理由见 §1。
+
+### M14-publish-target — 发布目标要写死在仓库里
+
+- **warning**:`publishConfig.registry` 未声明。此时 `npm publish` 发到哪里,取决于
+  执行那台机器当时的 npm 配置 —— 换一台机器、或者 CI 上少了一行 registry,私有插件
+  就这么发到了公共 npm 上,而**版本一旦发出不可撤回**(72 小时外连 unpublish 都不
+  给)。写进 `package.json` 才与机器无关。
+- **warning**:声明了但不是 https URL。
+- **不断言具体是哪个源**。这个检查器是给所有插件作者用的通用标准,发到公共 npm
+  是完全合法的选择。要把某个 Registry 钉死,写在各仓库自己的发布校验里
+  (本仓库是 `scripts/validate-release.mjs`),那里才知道这个包该发去哪。
+
+### M15-market-i18n — 市场双语文案
+
+- **warning**:`tokenscowork` 未声明,或不是对象。
+- **warning**:`tokenscowork.displayName` / `tokenscowork.summary` 缺 `zh-CN` 或
+  `en-US`,或者值为空白。
+- **warning**:`en-US` 与 `zh-CN` 逐字相同。把中文复制进英文字段能过所有「非空」
+  检查,而市场在英文 locale 下显示的仍是中文,等于没填 —— 这是实际发生过的,所以
+  单独判一条。
+- 市场从**已发布的包**里读这一段(`localizeCatalog`),读不到才回退后台存的文案
+  (通常只有中文)。所以改了 `package.json` 不会影响已发布版本,**要等下次发版才
+  生效**。
+
+### M16-license-file — 声明了 license 就要有正文
+
+- **warning**:`manifest.license` 有值,但目录里找不到许可证正文(找 `LICENSE`、
+  `LICENCE` 及 `.md` / `.txt` 变体)。下游拿到包只看到一个 SPDX 标识,无法确认条款
+  全文和版权归属。
+- 「一个 license 都没声明」是 M9 的事,这条只管「声明了却没正文」。
+- 与 M13 不同,这条在 `--package` 的解包目录里照判:npm 无条件把 LICENSE 打进
+  tarball。只有 registry 清单路径看不见文件。
 
 ---
 

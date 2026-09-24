@@ -7,9 +7,11 @@
  * error。这份测试是"不许再漂"的闸门:凡是只看清单就能判的规则,两边
  * 必须逐条一致。
  *
- * 允许的差异只有"要看工作区才能判"的那几条(M10-secrets、M13-tests):
- * registry 路径没有工作区。这是有意的,写在 docs/CHECKS.md §1,也在这里
- * 显式豁免。
+ * 允许的差异只有"要看文件才能判"的那几条(M10-secrets、M13-tests、
+ * M16-license-file):registry 清单路径没有文件。这是有意的,写在
+ * docs/CHECKS.md §1,也在这里显式豁免。反过来说,凡是只看清单就能判的
+ * 新规则(M14、M15 就是)必须落在 checkManifestFields 里,对拍会自动成立;
+ * 如果你新加的规则让这份测试红了,先问它是不是本该共用实现。
  * ============================================================ */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -27,12 +29,13 @@ const patchFor = manifest => `- insert:
 
 /**
  * 只看清单就能判的规则集之外的两类,不参与对拍:
- *  - M10-secrets 要扫工作区文件,M13-tests 要看 tests/ 与 scripts.test,
- *    而 tests/ 不进 tarball,registry 路径两者都看不到;
+ *  - M10-secrets 要扫工作区文件,M13-tests 要看 tests/ 与 scripts.test
+ *    (tests/ 不进 tarball),M16-license-file 要看 LICENSE 文件是否存在
+ *    —— registry 清单路径这三样都看不到;
  *  - M5-row-scope / M11-row-identity 要读补丁内容,registry 路径靠
  *    checkPublishedPackage 取 tarball 才有,checkPublishedManifest 不含。
  */
-const DISK_ONLY = new Set(['M10-secrets', 'M13-tests', 'M5-row-scope', 'M11-row-identity'])
+const DISK_ONLY = new Set(['M10-secrets', 'M13-tests', 'M16-license-file', 'M5-row-scope', 'M11-row-identity'])
 
 const comparable = findings => findings
   .filter(f => !DISK_ONLY.has(f.rule))

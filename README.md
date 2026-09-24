@@ -50,6 +50,9 @@ npx @tokensapi/dsh-plugin-check --package @scope/name@1.2.3 --runtime 0.1.3-alph
 | M11-row-identity | error | 补丁行 `id` 同层不得重复、不得含 `:`、不得占用宿主保留 id(`settings`、`web-runtime` 等) | **重复 id 会让用户整个 Desktop 起不来**;而市场安装装完从不重新解析补丁、也没有回滚,一路绿灯装上、下次开机才炸 |
 | M12-client | error/warning | 声明 `dsh.client` 时,字段形状与 `exports["./client"]` 必须成立 | 宿主构造期同步解析,一份写坏会让整个 client-modules 失败——**同宿主其他插件的前端模块一起挂** |
 | M13-tests | warning | 仓库要有可跑的测试:`scripts.test` 非占位,且目录里确有测试文件 | 没有测试的仓库,改动是否弄坏了加载或清单只能靠断言;插件的失败面在宿主进程里,用户先于你发现 |
+| M14-publish-target | warning | 声明了 `publishConfig.registry`,且是 https URL | 不声明时发布目标取决于执行机器的 npm 配置,私有插件会就这么发到公共源,而版本一旦发出不可撤回。**不断言**具体源:发到公共 npm 是合法选择 |
+| M15-market-i18n | warning | `tokenscowork.displayName` / `summary` 两个 locale 都非空,且英文≠中文 | 市场从**已发布的包**里读这段,读不到才回退后台存的中文;把中文复制进 `en-US` 能骗过非空检查,英文 locale 下等于没填 |
+| M16-license-file | warning | 声明了 `license` 就要有许可证正文文件 | 下游拿到包只看到一个 SPDX 标识,无法确认授权条款 |
 | S1-pack | error | `npm pack --ignore-scripts` 必须成功 | 包本身发布不出来 |
 | S2-install | error/warning | 按你声明的依赖必须装得出来;宿主内核包(`@deepseek-ai/*`)的内部版本在公开源取不到时降级为 warning 并跳过冒烟 | 用户受控安装会同样失败 |
 | S3/S4-apply | error | 每个补丁行:入口可解析、`import` 不抛、`ctx.plugin()` 应用不抛(声明 `inject` 等待服务注入属正常,不算失败) | **启动链击穿**——一行 import 失败会拖死整棵插件树 |

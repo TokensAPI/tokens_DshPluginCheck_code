@@ -5,6 +5,17 @@
 
 ## [未发布]
 
+### 新增
+
+- `M14-publish-target`(warning):要声明 `publishConfig.registry` 且为 https URL。
+  **不断言**具体是哪个源——发到公共 npm 是合法选择;钉死某个 Registry 是各仓库
+  `scripts/validate-release.mjs` 的事。
+- `M15-market-i18n`(warning):`tokenscowork.displayName` / `summary` 两个 locale
+  都要非空,且 `en-US` 不能与 `zh-CN` 逐字相同——复制中文能过非空检查,英文
+  locale 下等于没填。
+- `M16-license-file`(warning):声明了 `license` 就要有许可证正文文件。LICENSE 被
+  npm 无条件打进 tarball,所以 `--package` 的解包目录里也判。
+
 ## [0.4.2] - 2026-09-24
 
 ### 新增
