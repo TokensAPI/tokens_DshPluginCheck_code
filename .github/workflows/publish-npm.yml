@@ -58,6 +58,8 @@ jobs:
     # reach the publish step.
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    outputs:
+      package: ${{ steps.package.outputs.package }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -91,6 +93,13 @@ jobs:
           mkdir -p .release
           npm pack --pack-destination .release --ignore-scripts
 
+      - name: 检查 · 发布包检查的只读凭证
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.PLUGIN_CHECK_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ -n "${NODE_AUTH_TOKEN:-}" ]] || { echo '::error::请配置只读 Secret PLUGIN_CHECK_REGISTRY_TOKEN'; exit 1; }
+          [[ "$(npm whoami --registry=https://npm.tokensapi.ai/)" == market ]] || { echo '::error::包检查需要 market 只读账号'; exit 1; }
       - name: Publish to private npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.VERDACCIO_PUBLISH_TOKEN }}
@@ -127,3 +136,16 @@ jobs:
           esac
           npm publish .release/*.tgz --ignore-scripts --registry="$NPM_REGISTRY" --tag=latest
           npm view "$package_name@$package_version" version --registry="$NPM_REGISTRY"
+      - name: 报告 · 输出已发布的准确版本
+        id: package
+        run: node -p '"package=" + require("./package.json").name + "@" + require("./package.json").version' >> "$GITHUB_OUTPUT"
+
+  package-check:
+    name: 检查 · 插件发布包
+    needs: publish
+    uses: ./.github/workflows/check-plugin-package.yml
+    with:
+      package: ${{ needs.publish.outputs.package }}
+      checker_ref: ${{ github.sha }}
+    secrets:
+      PLUGIN_CHECK_REGISTRY_TOKEN: ${{ secrets.PLUGIN_CHECK_REGISTRY_TOKEN }}

@@ -1,7 +1,26 @@
 name: 检查 · 插件发布包
 
-# 只提供管理员手动检查；后台上架没有自动强制门禁，不能将二者混称。
+# npm 发布流程自动调用；手动入口用于检查已有版本，不操作市场上架。
 on:
+  workflow_call:
+    inputs:
+      package:
+        description: '刚发布的完整包名与精确版本'
+        required: true
+        type: string
+      checker_ref:
+        description: '检查器固定提交，须与调用 uses 的 SHA 一致'
+        required: true
+        type: string
+      runtime:
+        description: '留空时读取当前产品固定的 DSH 运行时，并记录产品提交'
+        required: false
+        default: ''
+        type: string
+    secrets:
+      PLUGIN_CHECK_REGISTRY_TOKEN:
+        description: '私有 Registry 只读服务账号令牌'
+        required: true
   workflow_dispatch:
     inputs:
       package:
@@ -17,7 +36,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: plugin-package-check
+  group: plugin-package-check-${{ github.repository }}-${{ inputs.package }}-${{ inputs.runtime }}
   cancel-in-progress: false
 
 jobs:
@@ -30,9 +49,18 @@ jobs:
       PLUGIN_PACKAGE: ${{ inputs.package }}
       TARGET_RUNTIME: ${{ inputs.runtime }}
     steps:
+      - name: 准备 · 固定检查器源码
+        id: source
+        env:
+          CHECKER_REF: ${{ inputs.checker_ref || github.sha }}
+        run: |
+          [[ "$CHECKER_REF" =~ ^[0-9a-f]{40}$ ]] || { echo '::error::检查器必须固定到完整提交 SHA'; exit 1; }
+          echo "commit=$CHECKER_REF" >> "$GITHUB_OUTPUT"
       - name: 准备 · 获取源码
         uses: actions/checkout@v7
         with:
+          repository: TokensAPI/tokens_DshPluginCheck_code
+          ref: ${{ steps.source.outputs.commit }}
           persist-credentials: false
       - name: 准备 · 配置 Node.js
         uses: actions/setup-node@v7
@@ -41,6 +69,21 @@ jobs:
           cache: npm
       - name: 准备 · 安装检查器固定依赖
         run: npm ci --ignore-scripts --registry=https://registry.npmjs.org/
+      - name: 准备 · 解析目标产品运行时
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$TARGET_RUNTIME" ]]; then
+            product_commit="$(gh api repos/TokensAPI/TokensCowork/commits/master --jq .sha)"
+            [[ "$product_commit" =~ ^[0-9a-f]{40}$ ]]
+            gh api "repos/TokensAPI/TokensCowork/contents/product.json?ref=$product_commit" --jq .content \
+              | base64 --decode > "$RUNNER_TEMP/plugin-check-product.json"
+            TARGET_RUNTIME="$(node -p 'JSON.parse(require("fs").readFileSync(process.env.RUNNER_TEMP + "/plugin-check-product.json", "utf8")).desktop.runtimeVersion')"
+            echo "TARGET_RUNTIME=$TARGET_RUNTIME" >> "$GITHUB_ENV"
+            printf '产品基线：`TokensAPI/TokensCowork@%s`\n\n' "$product_commit" >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: 准备 · 校验参数与只读 Registry 权限
         env:
           NODE_AUTH_TOKEN: ${{ secrets.PLUGIN_CHECK_REGISTRY_TOKEN }}
@@ -59,6 +102,10 @@ jobs:
           NODE
           printf '//npm.tokensapi.ai/:_authToken=${NODE_AUTH_TOKEN}\n' > "$NPM_CONFIG_USERCONFIG"
           chmod 600 "$NPM_CONFIG_USERCONFIG"
+          [[ "$(npm whoami --registry=https://npm.tokensapi.ai/)" == market ]] || {
+            echo '::error::包检查必须使用 market 只读账号，不接受发布账号凭证。'
+            exit 1
+          }
       - name: 检查 · 使用本次源码的检查器
         id: check
         shell: bash
@@ -70,6 +117,8 @@ jobs:
             --json > report.json || status=$?
           echo "status=${status}" >> "$GITHUB_OUTPUT"
       - name: 报告 · 展示实际检查结果
+        env:
+          CHECKER_COMMIT: ${{ steps.source.outputs.commit }}
         shell: bash
         run: |
           node --input-type=module <<'NODE' >> "$GITHUB_STEP_SUMMARY"
@@ -77,13 +126,18 @@ jobs:
           let report
           try { report = JSON.parse(readFileSync('report.json', 'utf8')) }
           catch { throw new Error('检查工具未产生有效 JSON；不能宣称检查通过') }
+          if (`${report.plugin}@${report.version}` !== process.env.PLUGIN_PACKAGE || report.runtime !== process.env.TARGET_RUNTIME)
+            throw new Error('报告的包版本或目标运行时与本次检查不一致')
           console.log(`# ${report.ok ? '✅ 合格' : '❌ 不合格'} · ${process.env.PLUGIN_PACKAGE}`)
           console.log(`目标运行时：${process.env.TARGET_RUNTIME}\n`)
           const tool = JSON.parse(readFileSync('package.json', 'utf8'))
-          console.log(`检查器：${tool.name}@${tool.version}，源码提交：${process.env.GITHUB_SHA}\n`)
+          console.log(`检查器：${tool.name}@${tool.version}，源码提交：${process.env.CHECKER_COMMIT}\n`)
           console.log('| 结果 | 规则 | 说明 |\n| --- | --- | --- |')
           for (const [mark, findings] of [['❌', report.errors], ['⚠️', report.warnings]]) {
             for (const item of findings ?? []) console.log(`| ${mark} | ${item.rule} | ${String(item.message).replaceAll('|', '\\|').replaceAll('\n', ' ')} |`)
+          }
+          for (const phase of report.phases ?? []) {
+            if (phase.skipped) console.log(`\n${phase.phase} 未执行：${phase.skipped}`)
           }
           console.log('\n这是发布包检查记录，不替代内置插件功能回归，也不会自动操作市场上架。')
           if (report.ok !== true) process.exitCode = 1

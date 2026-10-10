@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import yaml from 'js-yaml'
 import { validateRelease, parseRepository, EXPECTED_REPOSITORY, EXPECTED_REGISTRY } from '../scripts/validate-release.mjs'
 
 const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
@@ -69,4 +70,56 @@ test('发布步骤 fail-closed:查不确定就不发,且不落到公共 npm', ()
   assert.match(release, /VERDACCIO_PUBLISH_TOKEN/u)
   assert.match(release, /whoami/u)
   assert.doesNotMatch(release, /npm publish .*registry\.npmjs\.org/u)
+})
+
+test('发布后自动检查准确版本，补查与自动调用共用实现', () => {
+  const release = yaml.load(read('publish-npm.yml'))
+  const check = yaml.load(read('check-plugin-package.yml'))
+  const caller = release.jobs['package-check']
+  assert.equal(caller.needs, 'publish')
+  assert.equal(caller.uses, './.github/workflows/check-plugin-package.yml')
+  assert.equal(caller.with.package, '${{ needs.publish.outputs.package }}')
+  assert.equal(caller.with.checker_ref, '${{ github.sha }}')
+  assert.equal(caller.secrets.PLUGIN_CHECK_REGISTRY_TOKEN, '${{ secrets.PLUGIN_CHECK_REGISTRY_TOKEN }}')
+  assert.equal(check.on.workflow_call.inputs.package.required, true)
+  assert.equal(check.on.workflow_call.inputs.checker_ref.required, true)
+  assert.equal(check.on.workflow_dispatch.inputs.runtime.required, true)
+  assert.equal(check.on.workflow_call.inputs.runtime.default, '')
+  assert.equal(check.on.workflow_call.secrets.PLUGIN_CHECK_REGISTRY_TOKEN.required, true)
+  assert.doesNotMatch(read('check-plugin-package.yml'), /VERDACCIO_PUBLISH_TOKEN/u)
+  const checkout = check.jobs.check.steps.find(step => step.uses?.startsWith('actions/checkout@'))
+  assert.equal(checkout.with.repository, EXPECTED_REPOSITORY)
+  assert.equal(checkout.with.ref, '${{ steps.source.outputs.commit }}')
+  assert.notEqual(check.concurrency.group, release.concurrency.group, '子流程不能与发布父流程争同一个锁')
+})
+
+test('发布前确认只读账号，检查失败不会再次发布或覆盖版本', () => {
+  const release = yaml.load(read('publish-npm.yml'))
+  const steps = release.jobs.publish.steps
+  const preflight = steps.findIndex(step => step.env?.NODE_AUTH_TOKEN === '${{ secrets.PLUGIN_CHECK_REGISTRY_TOKEN }}')
+  const publish = steps.findIndex(step => step.run?.includes('npm publish'))
+  assert.ok(preflight >= 0 && preflight < publish)
+  assert.match(steps[preflight].run, /NODE_AUTH_TOKEN:-/u)
+  assert.match(steps[preflight].run, /npm whoami/u)
+  assert.match(steps[preflight].run, /== market/u)
+  const output = steps.find(step => step.id === 'package')
+  assert.ok(steps.indexOf(output) > publish)
+  assert.match(output.run, /name \+ "@" \+ require\("\.\/package.json"\)\.version/u)
+  const check = yaml.load(read('check-plugin-package.yml'))
+  assert.doesNotMatch(read('check-plugin-package.yml'), /npm publish|npm unpublish/u)
+  const status = check.jobs.check.steps.find(step => step.env?.CHECK_STATUS)
+  assert.match(status.run, /exit "\$CHECK_STATUS"/u)
+})
+
+test('包检查记录实际产品和检查器提交，拒绝错版本报告并保留跳过原因', () => {
+  const check = yaml.load(read('check-plugin-package.yml'))
+  const runtime = check.jobs.check.steps.find(step => step.name.endsWith('解析目标产品运行时'))
+  assert.match(runtime.run, /product.json\?ref=\$product_commit/u)
+  assert.match(runtime.run, /desktop\.runtimeVersion/u)
+  const report = check.jobs.check.steps.find(step => step.name.endsWith('展示实际检查结果'))
+  assert.equal(report.env.CHECKER_COMMIT, '${{ steps.source.outputs.commit }}')
+  assert.match(report.run, /report\.plugin.*report\.version/u)
+  assert.match(report.run, /report\.runtime !== process\.env\.TARGET_RUNTIME/u)
+  assert.match(report.run, /phase\.skipped/u)
+  assert.match(report.run, /report\.ok !== true/u)
 })
