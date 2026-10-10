@@ -116,5 +116,5 @@ plugin_check(package="@scope/name", version="1.2.3")
 ## 上架流程中的位置
 
 1. 开发者:发布 npm 版本前本地跑体检,全绿再发。
-2. 管理员:在仓库 Actions 的 **Plugin Check** workflow 填「包名@版本」手动触发,体检报告生成在该次运行的 Summary。
-3. 上架:后台 publish 对话框把这次运行的链接填入「检查记录链接」——链接的红/绿即审核证据,`reviewed_version` 随上架落库。存在 error 的版本不满足上架条件。
+2. 管理员:在本仓库 Actions 的 **检查 · 插件发布包**（[check-plugin-package.yml](.github/workflows/check-plugin-package.yml)）填写「包名@版本」和目标 DSH 运行时，手动执行本次提交的检查器；结果保存在 Summary 和 JSON 附件中。须在本仓库配置只读 Secret `PLUGIN_CHECK_REGISTRY_TOKEN`，缺少时明确失败。
+3. 上架:检查报告可作为后台「检查记录链接」的审核证据；后台目前没有自动验证或强制执行此门禁。包检查不替代插件功能回归，也不创建发布或操作上架。

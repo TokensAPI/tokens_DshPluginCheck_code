@@ -1,0 +1,105 @@
+name: 检查 · 插件发布包
+
+# 只提供管理员手动检查；后台上架没有自动强制门禁，不能将二者混称。
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: '指定完整包版本，例如 @tokensapi/example@1.2.3'
+        required: true
+        type: string
+      runtime:
+        description: '目标 DSH 运行时版本；填写待验证产品实际使用的版本'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: plugin-package-check
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: 检查 · 指定插件发布包
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      NPM_CONFIG_REGISTRY: https://npm.tokensapi.ai/
+      PLUGIN_PACKAGE: ${{ inputs.package }}
+      TARGET_RUNTIME: ${{ inputs.runtime }}
+    steps:
+      - name: 准备 · 获取源码
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: 准备 · 配置 Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+      - name: 准备 · 安装检查器固定依赖
+        run: npm ci --ignore-scripts --registry=https://registry.npmjs.org/
+      - name: 准备 · 校验参数与只读 Registry 权限
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.PLUGIN_CHECK_REGISTRY_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          export NPM_CONFIG_USERCONFIG="$RUNNER_TEMP/plugin-check.npmrc"
+          echo "NPM_CONFIG_USERCONFIG=$NPM_CONFIG_USERCONFIG" >> "$GITHUB_ENV"
+          if [[ -z "${NODE_AUTH_TOKEN:-}" ]]; then
+            echo '::error::缺少 PLUGIN_CHECK_REGISTRY_TOKEN（私有 Registry 只读令牌）；未执行插件包检查。'
+            exit 1
+          fi
+          node --input-type=module <<'NODE'
+          if (!/^(?:@[a-z0-9._-]+\/)?[a-z0-9._-]+@\d+\.\d+\.\d+(?:-[a-z0-9.-]+)?$/i.test(process.env.PLUGIN_PACKAGE)) throw new Error('须指定包名与精确版本，不接受 latest、URL 或命令')
+          if (!/^\d+\.\d+\.\d+(?:-[a-z0-9.-]+)?$/i.test(process.env.TARGET_RUNTIME)) throw new Error('须指定目标产品实际使用的运行时版本')
+          NODE
+          printf '//npm.tokensapi.ai/:_authToken=${NODE_AUTH_TOKEN}\n' > "$NPM_CONFIG_USERCONFIG"
+          chmod 600 "$NPM_CONFIG_USERCONFIG"
+      - name: 检查 · 使用本次源码的检查器
+        id: check
+        shell: bash
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.PLUGIN_CHECK_REGISTRY_TOKEN }}
+        run: |
+          status=0
+          node bin/dsh-plugin-check.mjs --package "$PLUGIN_PACKAGE" --runtime "$TARGET_RUNTIME" \
+            --json > report.json || status=$?
+          echo "status=${status}" >> "$GITHUB_OUTPUT"
+      - name: 报告 · 展示实际检查结果
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE' >> "$GITHUB_STEP_SUMMARY"
+          import { readFileSync } from 'node:fs'
+          let report
+          try { report = JSON.parse(readFileSync('report.json', 'utf8')) }
+          catch { throw new Error('检查工具未产生有效 JSON；不能宣称检查通过') }
+          console.log(`# ${report.ok ? '✅ 合格' : '❌ 不合格'} · ${process.env.PLUGIN_PACKAGE}`)
+          console.log(`目标运行时：${process.env.TARGET_RUNTIME}\n`)
+          const tool = JSON.parse(readFileSync('package.json', 'utf8'))
+          console.log(`检查器：${tool.name}@${tool.version}，源码提交：${process.env.GITHUB_SHA}\n`)
+          console.log('| 结果 | 规则 | 说明 |\n| --- | --- | --- |')
+          for (const [mark, findings] of [['❌', report.errors], ['⚠️', report.warnings]]) {
+            for (const item of findings ?? []) console.log(`| ${mark} | ${item.rule} | ${String(item.message).replaceAll('|', '\\|').replaceAll('\n', ' ')} |`)
+          }
+          console.log('\n这是发布包检查记录，不替代内置插件功能回归，也不会自动操作市场上架。')
+          if (report.ok !== true) process.exitCode = 1
+          NODE
+      - name: 报告 · 保存原始 JSON
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: plugin-package-check-${{ github.run_id }}
+          path: report.json
+          if-no-files-found: ignore
+      - name: 检查 · 保留工具退出状态
+        if: always() && steps.check.outcome == 'success'
+        env:
+          CHECK_STATUS: ${{ steps.check.outputs.status }}
+        run: exit "$CHECK_STATUS"
+      - name: 清理 · 删除临时 npm 配置
+        if: always()
+        run: rm -f -- "$RUNNER_TEMP/plugin-check.npmrc"
