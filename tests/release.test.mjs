@@ -1,11 +1,26 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import yaml from 'js-yaml'
 import { validateRelease, parseRepository, EXPECTED_REPOSITORY, EXPECTED_REGISTRY } from '../scripts/validate-release.mjs'
 
 const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
 const read = name => readFileSync(new URL(`../.github/workflows/${name}`, import.meta.url), 'utf8')
+
+// Without the read-only secret the preflight warns, marks the package check as skipped and lets the release go on.
+function assertSkipsWithoutSecret(script) {
+  const dir = mkdtempSync(join(tmpdir(), 'plugin-checker-'))
+  try {
+    const output = join(dir, 'output')
+    const run = spawnSync('bash', ['-c', script], { encoding: 'utf8', env: { ...process.env, NODE_AUTH_TOKEN: '', GITHUB_OUTPUT: output } })
+    assert.equal(run.status, 0, run.stderr)
+    assert.match(run.stdout, /::warning::.*PLUGIN_CHECK_REGISTRY_TOKEN/u)
+    assert.equal(readFileSync(output, 'utf8').trim(), 'enabled=false')
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}
 
 test('市场元数据两种语言都给了非空文案', () => {
   for (const field of ['displayName', 'summary']) {
@@ -77,6 +92,8 @@ test('发布后自动检查准确版本，补查与自动调用共用实现', ()
   const check = yaml.load(read('check-plugin-package.yml'))
   const caller = release.jobs['package-check']
   assert.equal(caller.needs, 'publish')
+  assert.equal(caller.if, "needs.publish.outputs.package-check == 'true'")
+  assert.equal(release.jobs.publish.outputs['package-check'], '${{ steps.checker.outputs.enabled }}')
   assert.equal(caller.uses, './.github/workflows/check-plugin-package.yml')
   assert.equal(caller.with.package, '${{ needs.publish.outputs.package }}')
   assert.equal(caller.with.checker_ref, '${{ github.sha }}')
@@ -102,6 +119,8 @@ test('发布前确认只读账号，检查失败不会再次发布或覆盖版�
   assert.match(steps[preflight].run, /NODE_AUTH_TOKEN:-/u)
   assert.match(steps[preflight].run, /npm whoami/u)
   assert.match(steps[preflight].run, /== market/u)
+  assert.equal(steps[preflight].id, 'checker')
+  assertSkipsWithoutSecret(steps[preflight].run)
   const output = steps.find(step => step.id === 'package')
   assert.ok(steps.indexOf(output) > publish)
   assert.match(output.run, /name \+ "@" \+ require\("\.\/package.json"\)\.version/u)
