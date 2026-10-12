@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Plugin Check",
+    "description": "Decide in one command whether a plugin package is safe for the host to load, and expose a plugin_check tool inside the session once installed."
+  }
+}

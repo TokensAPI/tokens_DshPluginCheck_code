@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "插件体检",
+    "description": "一条命令判定插件包能否安全装入宿主;装入 Cowork 后提供会话内 plugin_check 工具。"
+  }
+}
