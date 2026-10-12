@@ -5,6 +5,14 @@
 
 ## [未发布]
 
+## [0.4.4] - 2026-10-12
+
+### 新增
+
+- 本插件自身补齐 dsh 插件页的展示元数据：新增并导出 `locale/en.json`、`locale/zh.json`，
+  文案与 `tokenscowork` 市场字段一致。dsh 插件页只读 `locale/*.json`，此前标题退回完整
+  包名、描述只有中文。测试校验两者一致、中英文不同且文件确实打进 tarball。
+
 ## [0.4.3] - 2026-09-24
 
 ### 新增
@@ -47,7 +55,8 @@
 
 首个发布到私有源的版本（手工发布）。此前版本的改动见提交历史。
 
-[未发布]: https://github.com/TokensAPI/tokens_DshPluginCheck_code/compare/v0.4.3...HEAD
+[未发布]: https://github.com/TokensAPI/tokens_DshPluginCheck_code/compare/v0.4.4...HEAD
+[0.4.4]: https://github.com/TokensAPI/tokens_DshPluginCheck_code/releases/tag/v0.4.4
 [0.4.3]: https://github.com/TokensAPI/tokens_DshPluginCheck_code/releases/tag/v0.4.3
 [0.4.2]: https://github.com/TokensAPI/tokens_DshPluginCheck_code/releases/tag/v0.4.2
 [0.4.1]: https://github.com/TokensAPI/tokens_DshPluginCheck_code/releases/tag/v0.4.1
