@@ -44,15 +44,34 @@ test('inject/external 必须是字符串数组', () => {
   }
 })
 
-test('external 必须是精确裸包根,且不能是本包自己', () => {
-  const bad = checkClientDeclaration({
+test('external 的包行写法两种都接受:裸包名与 "<包名>/client"', () => {
+  // 上游写明 `<pkg>/client` 是裸包名的别名(orderByModuleGraph 用
+  // stripClientSuffix 归一),判死等于把合格插件报成不合格。
+  for (const external of [['@x/other'], ['@x/other/client'], ['react-dom'], ['@x/other', '@y/z/client']]) {
+    assert.deepEqual(checkClientDeclaration({ ...OK, dsh: { client: { platform: 'web', external } } }), [], String(external))
+  }
+})
+
+test('external 既不是包行也不是裸包名时只提示:宿主当它是静态模块表的名字', () => {
+  const odd = checkClientDeclaration({
     ...OK,
     dsh: { client: { platform: 'web', external: ['@x/deep/sub', 'plain/sub', '@onlyscope'] } },
   })
-  assert.equal(levels(bad, 'error').length, 3)
-  const self = checkClientDeclaration({ ...OK, dsh: { client: { platform: 'web', external: ['@x/p'] } } })
-  assert.equal(levels(self, 'error').length, 1)
-  assert.match(levels(self, 'error')[0], /自己/u)
+  assert.deepEqual(levels(odd, 'error'), [])
+  assert.equal(levels(odd, 'warning').length, 3)
+  assert.match(levels(odd, 'warning')[0], /静态模块表/u)
+  // cordis: / node: 这类带 scheme 的写法,2.0.17 的 exactPackageSpecifier 也排掉了。
+  const scheme = checkClientDeclaration({ ...OK, dsh: { client: { platform: 'web', external: ['cordis:include'] } } })
+  assert.deepEqual(levels(scheme, 'error'), [])
+  assert.equal(levels(scheme, 'warning').length, 1)
+})
+
+test('external 不能是本包自己,写成 "<自己>/client" 同样拦住', () => {
+  for (const external of [['@x/p'], ['@x/p/client']]) {
+    const self = checkClientDeclaration({ ...OK, dsh: { client: { platform: 'web', external } } })
+    assert.equal(levels(self, 'error').length, 1, String(external))
+    assert.match(levels(self, 'error')[0], /自己/u)
+  }
 })
 
 test('immediately 必须是布尔值', () => {

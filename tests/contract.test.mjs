@@ -1,6 +1,13 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { CONTRACT, contractLine, checkContractBaseline, LIFECYCLE_SCRIPTS, lifecycleMessage } from '../lib/contract.mjs'
+import {
+  BLOCKED_PACKAGE_NAMES,
+  CONTRACT,
+  LIFECYCLE_SCRIPTS,
+  checkContractBaseline,
+  contractLine,
+  lifecycleMessage,
+} from '../lib/contract.mjs'
 
 test('基线声明齐备:核对日期、上游版本、已核对运行时', () => {
   assert.match(CONTRACT.verifiedAt, /^\d{4}-\d{2}-\d{2}$/u)
@@ -18,6 +25,12 @@ test('核对过的运行时不提示,没核对过的给 C0 warning', () => {
   assert.equal(findings.length, 1)
   assert.equal(findings[0].rule, 'C0-contract')
   assert.equal(findings[0].level, 'warning')
+})
+
+test('产品包名黑名单跟上 2.0.17:市场也拒绝 dsh-desktop-next', () => {
+  for (const name of ['dsh-plugin-desktop', 'dsh-plugin-desktop-beta', 'dsh-desktop-next', 'dsh-community-market']) {
+    assert.ok(BLOCKED_PACKAGE_NAMES.has(name), name)
+  }
 })
 
 test('生命周期措辞按脚本分开:prepare 说两条安装路径不一致', () => {

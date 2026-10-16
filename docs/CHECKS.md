@@ -17,14 +17,14 @@
 
 | 项 | 值 |
 | --- | --- |
-| 核对日期 | 2026-09-10 |
-| `dsh-plugin-desktop` | 2.0.5 |
+| 核对日期 | 2026-10-16 |
+| `dsh-plugin-desktop` | 2.0.17 |
 | `dsh-community-market` | 0.1.0-dev.0 |
-| `@deepseek-ai/cordis` | 4.0.2 |
-| `@deepseek-ai/dsh-tools` | 0.1.3-alpha.1 |
+| `@deepseek-ai/cordis` | 4.0.4 |
+| `@deepseek-ai/dsh-tools` | 0.2.0-rc.2 |
 | 受控安装的包管理器 | pnpm 11.8.0 |
-| 已核对的 DSH 运行时 | `0.1.0-rc.8`、`0.1.3-alpha.1` |
-| 核对过的运行时区间 | `>=0.1.0-rc.8 <0.2.0` |
+| 已核对的 DSH 运行时 | `0.1.0-rc.8`、`0.1.3-alpha.1`、`0.2.0-rc.2` |
+| 核对过的运行时区间 | `>=0.1.0-rc.8 <0.3.0-0` |
 
 `--runtime` 传了核对范围之外的版本时,会多出一条 **C0-contract** warning:明确
 告诉你「这个版本没核对过,结论可能过时或过严」,而不是假装照样有效。
@@ -89,10 +89,12 @@ registry 路径根本没有文件;M13 还更窄一层,`tests/` 按惯例被 `fil
   合法 SemVer。
 - **error**:`name` 不满足市场的包名约束(小写字母或数字开头,只含 `a-z 0-9 . _ -`,
   可带一层 `@scope`,总长 ≤214),或落在上游黑名单(`dsh-plugin-desktop`、
-  `dsh-plugin-desktop-beta`、`dsh-community-market`、`@deepseek-ai/dsh-desktop-app`)。
-  这两类包无论内容多干净都装不进市场 —— 验证器在看清单内容之前就拒了。
+  `dsh-plugin-desktop-beta`、`dsh-desktop-next`、`dsh-community-market`、
+  `@deepseek-ai/dsh-desktop-app`)。这两类包无论内容多干净都装不进市场 ——
+  验证器在看清单内容之前就拒了。
   **上游锚点**:`install/service.ts:26` 的 `PACKAGE_NAME_PATTERN`、
-  `desktop-plugins.ts:193` 的 `safePackageName`、`BLOCKED_PRODUCT_PACKAGES`。
+  `:34-39` 的 `BLOCKED_PRODUCT_PACKAGES`(2.0.17 起多了 `dsh-desktop-next`)、
+  `desktop-plugins.ts:209` 的 `safePackageName`、`:48-53` 的 `IMMUTABLE_BUNDLES`。
 - **warning**:`version` 是预发布版(如 `0.2.0-beta.1`)。
 - **warning**:声明了 `dsh.profile` 或 `dsh.moduleFallback` —— 这两个是宿主/Profile
   侧字段,插件包声明它没有作用,多半是从 Profile 的 `package.json` 误抄过来的。
@@ -171,8 +173,9 @@ registry 路径根本没有文件;M13 还更窄一层,`tests/` 按惯例被 `fil
 - **warning**:`dsh.engine` 未声明。
 - **error**:`dsh.engine` 不是合法 SemVer 范围;或给了 `--runtime` 而该范围不覆盖它。
 - **诚实说明**:核对下来,**上游目前没有任何代码读 `dsh.engine`** —— 它是约定,不是
-  被强制的契约。所以「未声明」只给 warning。一旦声明了,就按声明判:自己写了范围又
-  不覆盖目标运行时,是插件自己的矛盾,判 error 不冤。
+  被强制的契约(2.0.17 / DSH 0.2.0-rc.2 复核时仍然如此:宿主判兼容只看
+  `peerDependencies`,见 M7)。所以「未声明」只给 warning。一旦声明了,就按声明判:
+  自己写了范围又不覆盖目标运行时,是插件自己的矛盾,判 error 不冤。
 
 ### M7-peer-range — peer 范围与运行时的交集
 
@@ -181,13 +184,34 @@ registry 路径根本没有文件;M13 还更窄一层,`tests/` 按惯例被 `fil
   `@deepseek-ai/dsh*`。0.3.x 时过滤写的是 `startsWith('@deepseek-ai/dsh')`,
   于是把 `@deepseek-ai/cordis` 的范围写成 `not-a-range` **完全不报** —— 偏偏
   cordis 正是 S2 冒烟真正要装的那个包,范围写坏下一步必然装不出来。
-- **warning**:给了 `--runtime` 而 peer 范围不含它。
+- **error(目标运行时 ≥ 0.2)**:`@deepseek-ai/dsh` / `@deepseek-ai/dsh-*` 的 peer 范围
+  不含目标运行时。**DSH 0.2 起这不是隐患,是当场失效**:宿主启动时就按这个范围把插件的
+  Loader 行 `disabled = true`,用户装了也打不开,而原因只走 DenialReporter 打到 Desktop
+  的标准错误输出、日志文件里看不到。修法是放宽范围重发,或在该 Profile 上用
+  `dsh plugin allow-version` 按精确版本豁免(写进 Profile 目录的 `compatibility.json`)。
+- **error(目标运行时 ≥ 0.2)**:被硬拦的 peer 范围是空字符串。semver 把 `""` 当作
+  「任何版本都满足」,宿主却直接判不兼容 —— 不单独拎出来就会放行一个上游必拦的包。
+- **warning(目标运行时 ≥ 0.2)**:被硬拦的 peer 写成 `workspace:^` / `workspace:~` /
+  `workspace:*`。宿主把这三种直接当作「就是当前运行时」,所以不会拦;但发到 Registry
+  之后这个依赖装不出来,所以仍然提示一句。`@deepseek-ai/cordis` 不走这条等价 ——
+  它是 S2 冒烟真正要装的包,写成 `workspace:` 就是真装不出来,照判 error。
+- **warning(目标运行时 < 0.2)**:给了 `--runtime` 而 peer 范围不含它。0.1 的 app-boot
+  里没有 `evaluatePluginCompatibility`(实测 0.1.5-rc.2),不匹配也照样加载,所以这里
+  预示的只是宿主升级之后的接口错配,判死会挡住「暂时还能跑、只是没来得及放宽范围」的插件。
 - **「是否含目标运行时」只对 `@deepseek-ai/dsh*` 判**:核心包里只有它跟着 DSH 运行时
   版本走,`@deepseek-ai/cordis` 自成一条 4.x 版本线。拿 `"4.0.1 || 4.0.2"` 去比对运行时
   `0.1.3-alpha.1` 是范畴错误,不是插件的问题(本工具自己的清单就是这个形状)。
   区分写在 `lib/contract.mjs` 的 `isRuntimeVersioned`。
-- **为什么只是 warning**:范围不含目标运行时,不代表当场就崩 —— 它预示的是宿主升级
-  之后的接口错配。判死会挡住「暂时还能跑、只是没来得及放宽范围」的插件。
+- **判「会不会被硬拦」时用的是更窄的 `isGatedPeer`**:宿主要求名字要么恰好是
+  `@deepseek-ai/dsh`,要么带连字符;`isRuntimeVersioned` 的前缀判断会把
+  `@deepseek-ai/dshfoo` 也算进来,拿它判死等于报死一个宿主根本不看的 peer。
+- **这条规则的由来**:本包 0.4.4 自己就因为 peer 只写到 0.1 而在 TokensCowork 0.6 上被
+  停用,而当时的 M7 只给一条 warning、退出码还是 0。按 §6「error = 装进用户的 Cowork
+  会坏」,这种情况必须判 error。
+- **上游锚点**:`packages/boot/app-boot/src/plugin-compatibility.ts` →
+  `evaluatePluginCompatibility`(`:61-88`,名字过滤 `:75`、`workspace:` 等价 `:76`、
+  `includePrerelease` 与空范围 `:77`)、`compatibility-preflight.ts:103-130` → 置
+  `disabled`、`profile.ts:675-676` → Profile bundle 的同一判定。
 
 ### M8-node-engines / M9-license
 
@@ -231,19 +255,28 @@ registry 路径根本没有文件;M13 还更窄一层,`tests/` 按惯例被 `fil
 ### M12-client — `dsh.client` 声明错会拖垮别的插件
 
 - **error**:`dsh.client` 不是对象;`platform` 缺失或不是字符串;`inject` / `external`
-  不是字符串数组;`external` 条目不是精确的裸包根(scope 名恰好两段、非 scope 名不含
-  `/`)或含本包自身;`immediately` 不是布尔值;声明了 `dsh.client` 却没有
-  `exports["./client"]`,或它不是字符串 / 不是带字符串 `default` 的对象。
+  不是字符串数组;`external` 含本包自身(写成 `<自己>/client` 一样算);`immediately`
+  不是布尔值;声明了 `dsh.client` 却没有 `exports["./client"]`,或它不是字符串 / 不是带
+  字符串 `default` 的对象。
+- **warning**:`external` 条目既不是裸包根、也不是 `<包名>/client`。上游写明 `external`
+  有两种:它命名的那个包行(`<包名>/client` 是裸包名的别名,走 `stripClientSuffix` 归一),
+  或者静态模块表里的名字 —— 后者不加依赖边,表里有没有我们在包外面查不到,所以只能提示。
+  **0.4.5 之前这条判的是 error**,把上游明确允许的 `<包名>/client`、`react-dom/client`
+  这类写法报成了不合格。
 - **warning**:`platform !== 'web'` —— 宿主只把 `platform === 'web'` 的行当作前端模块,
   其他取值等于这段声明不会生效。
 - **为什么是 error 而不是「你自己的事」**:宿主的 client-modules 在**构造期同步**解析
   所有已加载包的 `dsh.client`,一份声明写坏会抛出并让整个 client-modules fiber FAIL ——
   受害的不止这个插件,而是同一宿主里所有需要前端模块的插件。
-- **字段全集**就是 `{ platform, inject?, external?, immediately? }`,未知键被忽略。
-- **上游锚点**:`packages/client/modules/src/index.ts` → `parseDshClient`(`:200-221`)、
-  `exactPackageSpecifier`(`:192-198`)、`clientExportOf`(`:224-234`)、
-  自引用检查(`:454-461`)、`platform === 'web'` 过滤(`:756`)、
-  缺 `./client` 的抛出(`:760-763`)。
+- **字段全集**就是 `{ platform, inject?, external?, immediately? }`,未知键被忽略
+  (`DshClientManifest`,`packages/util/package-manifest/src/types.ts:81-94`)。
+- **上游锚点**(2.0.17 起 `parseDshClient` 与两个谓词搬到了 `client/manifest.ts`):
+  `packages/client/modules/src/client/manifest.ts` → `parseDshClient`(`:161-181`)、
+  `exactPackageSpecifier`(`:189-195`,非 scope 分支新增了 `:` 排除)、
+  `stripClientSuffix`(`:206-208`);`packages/client/modules/src/index.ts` →
+  `clientExportOf`(`:195-205`)、`external` 的两种语义与自引用抛出
+  (`orderByModuleGraph`,`:490-530`)、`platform === 'web'` 过滤与缺 `./client`
+  的抛出(`:841-847`)。
 - 没有 `dsh.client` 的插件(绝大多数)完全不产生任何发现。
 
 ### M13-tests — 仓库要有测试
@@ -351,7 +384,8 @@ S4 之所以要在子进程里做,是因为它**真的执行插件代码**:顶�
 ## 5. 上游变动后怎么复核
 
 上游一个版本升上去,这个检查器**可能要改,也可能完全不用改**。别猜,照下表看一遍
-就有答案。每格里的锚点都是本次(2026-09-10)实际读过的代码位置。
+就有答案。每格里的锚点都是本次(2026-10-16,desktop 2.0.17 / DSH 0.2.0-rc.2)实际
+读过的代码位置。
 
 | 规则 | 去看什么 | 什么情况下必须改 |
 | --- | --- | --- |
@@ -360,12 +394,12 @@ S4 之所以要在子进程里做,是因为它**真的执行插件代码**:顶�
 | M3 | `@deepseek-ai/cordis` 主版本、dsh 服务注册方式 | 身份对齐机制改变 → 重新划 `isIdentityCore` 的范围 |
 | M4 | market `src/install/service.ts:268` → `safeBundlePatch`(本仓逐字照抄在 `lib/contract.mjs`);`dsh-plugin-desktop/src/profile.ts` 的补丁路径 | 谓词改一个字 → 同步照抄,否则我们放行的包上游照拒 |
 | M5 | `dsh-plugin-desktop/src/module-resolution.ts` → `selectedOverlayCandidate` / `PackageOverlayNotFoundError` | 行 `name` 的解析语义变化 → 这条必须跟着改 |
-| M6 | 全仓搜 `dsh.engine` 有没有被真正读取 | 一旦上游开始强制 → 「未声明」从 warning 升 error |
-| M7 | 宿主提供的 `@deepseek-ai/dsh*` 版本;`@deepseek-ai/cordis` 是否并入同一条版本线 | 版本变了只需更新 `CONTRACT.runtimes`;版本线合并 → 改 `isRuntimeVersioned` |
+| M6 | 全仓搜 `dsh.engine` 有没有被真正读取(2.0.17 仍然无人读) | 一旦上游开始强制 → 「未声明」从 warning 升 error |
+| M7 | `app-boot/src/plugin-compatibility.ts` → `evaluatePluginCompatibility` 还在不在、名字过滤与 `workspace:`/空范围的口径有没有变、`compatibility-preflight.ts` 是停用还是改成别的处置;宿主提供的 `@deepseek-ai/dsh*` 版本;`@deepseek-ai/cordis` 是否并入同一条版本线 | 硬拦的触发版本变了 → 改 `PEER_GATE_SINCE`;名字过滤变了 → 同步 `isGatedPeer`;处置从「停用」变成别的 → 重判级别与措辞;版本变了只需更新 `CONTRACT.runtimes`;版本线合并 → 改 `isRuntimeVersioned` |
 | M8/M9 | 宿主 `engines.node`(现为 `^22.19.0 \|\| >=24.0.0`,记在 `HOST_NODE_ENGINES`)、上架元数据要求 | 宿主 Node 区间变化 → 同步常量 |
 | M10 | 无上游依赖(发布卫生) | 基本不用改 |
 | M11 | `vendor/loader/src/config/group.ts:64`(duplicate id 抛出)、`tree.ts:8`(`EntryTree.sep`)、`dsh-plugin-desktop/src/profile.ts:633-646` → `assertUniqueEntryIds`、`desktop-market.ts:28-39` → `DESKTOP_MARKET_IDENTITIES` | 分隔符或保留 id 集合变化 → 同步 `RESERVED_ROW_IDS` / `RESERVED_ROW_NAMES`;唯一性作用域改成全局 → 改 `checkRowIdentity` 的按层逻辑 |
-| M12 | `packages/client/modules/src/index.ts:200-221` → `parseDshClient`;`:192-198` → `exactPackageSpecifier`;`:224-234` → `clientExportOf` | 字段全集或接受形状变化 → 同步 `lib/client-check.mjs` |
+| M12 | `packages/client/modules/src/client/manifest.ts:161` → `parseDshClient`;`:189` → `exactPackageSpecifier`;`:206` → `stripClientSuffix`;`index.ts:195` → `clientExportOf`;`index.ts:490-530` → `external` 的两种语义;`packages/util/package-manifest/src/types.ts:81-94` → `DshClientManifest` | 字段全集或接受形状变化 → 同步 `lib/client-check.mjs`;`external` 允许的形状变化 → 跟着调级别(放宽判死会误报合格插件,收紧漏判才会放行坏包) |
 | S1–S4 | cordis 的 `new Context()` / `ctx.plugin()` API | cordis 主版本升级 → 复核 `RUNNER_SOURCE` |
 
 另外一条**没有对应规则、但复核时值得看一眼**的:`scripts/verify-cordis-config.ts` 要求

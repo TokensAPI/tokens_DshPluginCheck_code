@@ -9,7 +9,7 @@ TokensCowork / DSH 插件合格性体检。给所有插件开发者的统一标�
 npx @tokensapi/dsh-plugin-check
 
 # 指定目标运行时(启用兼容范围判定;当前产品运行时版本见市场公告)
-npx @tokensapi/dsh-plugin-check --runtime 0.1.3-alpha.1
+npx @tokensapi/dsh-plugin-check --runtime 0.2.0-rc.2
 
 # 只跑离线清单体检(秒级,无网络)
 npx @tokensapi/dsh-plugin-check --skip-smoke
@@ -18,7 +18,7 @@ npx @tokensapi/dsh-plugin-check --skip-smoke
 npx @tokensapi/dsh-plugin-check --json
 
 # 体检一个已发布的 npm 包(市场上架审核用)
-npx @tokensapi/dsh-plugin-check --package @scope/name@1.2.3 --runtime 0.1.3-alpha.1
+npx @tokensapi/dsh-plugin-check --package @scope/name@1.2.3 --runtime 0.2.0-rc.2
 ```
 
 退出码:`0` 合格,`1` 存在 error(`--strict` 时 warning 也计入)。冒烟失败时加 `--keep-workspace` 保留临时工作区排查。
@@ -65,7 +65,7 @@ npx @tokensapi/dsh-plugin-check --package @scope/name@1.2.3 --runtime 0.1.3-alph
 `contract` 字段。
 
 ```
-契约基线 2026-09-10 · desktop 2.0.5 / market 0.1.0-dev.0 · 已核对运行时 0.1.0-rc.8、0.1.3-alpha.1
+契约基线 2026-10-16 · desktop 2.0.17 / market 0.1.0-dev.0 · 已核对运行时 0.1.0-rc.8、0.1.3-alpha.1、0.2.0-rc.2
 ```
 
 `--runtime` 传了核对范围之外的版本,会多一条 **C0-contract** warning,明说"这个版本
@@ -97,20 +97,27 @@ plugin_check(package="@scope/name", version="1.2.3")
 ```json
 {
   "dsh": {
-    "engine": ">=0.1.3-alpha.1 <0.2.0",
+    "engine": ">=0.1.0-rc.8 <0.3.0-0",
     "bundle": { "patch": "./cordis.patch.yml" }
   }
 }
 ```
 
-这个字段目前**没有被上游强制读取**(2026-09-10 核对),它的作用是让体检能判断你与目标
-运行时是否相容:声明了,`--runtime` 越出范围时会直接报 error;不声明,这一层就判不了。
+这个字段目前**没有被上游强制读取**(2026-10-16 核对,DSH 0.2 仍然如此),它的作用是让
+体检能判断你与目标运行时是否相容:声明了,`--runtime` 越出范围时会直接报 error;不声明,
+这一层就判不了。
+
+**真正决定插件能不能加载的是 `peerDependencies`**:DSH 0.2 起宿主启动时只按
+`@deepseek-ai/dsh` / `@deepseek-ai/dsh-*` 的 peer 范围判兼容,不满足就把插件停用,而且
+原因只打在 Desktop 的标准错误输出里。市场插件所有用户都装最新版,所以这个范围要同时
+覆盖还在服务的 0.1 和当前的 0.2,例如 `">=0.1.0-rc.8 <0.3.0-0"`;写死几个精确版本,
+宿主升一个补丁版就会把插件挡在外面(M7 会在目标运行时 ≥ 0.2 时直接报 error)。
 
 ## CI 集成示例
 
 ```yaml
 # .github/workflows/check.yml
-- run: npx @tokensapi/dsh-plugin-check --runtime 0.1.3-alpha.1 --strict
+- run: npx @tokensapi/dsh-plugin-check --runtime 0.2.0-rc.2 --strict
 ```
 
 ## 上架流程中的位置
