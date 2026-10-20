@@ -17,14 +17,21 @@
 
 | 项 | 值 |
 | --- | --- |
-| 核对日期 | 2026-10-16 |
-| `dsh-plugin-desktop` | 2.0.17 |
+| 核对日期 | 2026-10-20 |
+| `dsh-plugin-desktop` | 2.0.18 |
 | `dsh-community-market` | 0.1.0-dev.0 |
-| `@deepseek-ai/cordis` | 4.0.4 |
-| `@deepseek-ai/dsh-tools` | 0.2.0-rc.2 |
+| `@deepseek-ai/cordis` | 4.0.5 |
+| `@deepseek-ai/dsh-tools` | 0.2.1-rc.2 |
 | 受控安装的包管理器 | pnpm 11.8.0 |
-| 已核对的 DSH 运行时 | `0.1.0-rc.8`、`0.1.3-alpha.1`、`0.2.0-rc.2` |
+| 已核对的 DSH 运行时 | `0.1.0-rc.8`、`0.1.3-alpha.1`、`0.1.5-rc.2`、`0.2.0-rc.2`、`0.2.1-rc.2` |
 | 核对过的运行时区间 | `>=0.1.0-rc.8 <0.3.0-0` |
+
+0.1.5-rc.2 / 0.2.0-rc.2 / 0.2.1-rc.2 三份判定不是读源码推的,是**从真实 staged 宿主里
+import 上游的 `evaluatePluginCompatibility` 逐条对拍**出来的(0.1.5-rc.2 上这个导出
+**根本不存在** —— 这正是 M7「0.1 没有这道闸」的前提,现在由对拍每次确认),对拍脚本固化成了
+`tests/host-truth.test.mjs`(给 `DSH_TEST_RUNTIME` 指向宿主的
+`dsh-plugin-desktop/package.json` 即运行,CI 上没有宿主时整组跳过)。照抄上游谓词这件事
+本身会漂 —— 0.4.5 就是这么在 DSH 0.2.1 上判错的,所以现在有一道对拍兜着。
 
 `--runtime` 传了核对范围之外的版本时,会多出一条 **C0-contract** warning:明确
 告诉你「这个版本没核对过,结论可能过时或过严」,而不是假装照样有效。
@@ -38,10 +45,10 @@
 
 | 入口 | 拿到的是什么 | 跑哪些规则 |
 | --- | --- | --- |
-| CLI `dsh-plugin-check [目录]` | 本地工作区文件 | M1–M16 + S1–S4(完整) |
-| CLI `--package <name@ver>` | `npm pack` 下载并解包的目录 | M1–M16 + S1–S4(除 M13,解包目录里没有 `tests/`) |
-| 会话内 `plugin_check(path=…)` | 本地工作区文件 | M1–M16 |
-| 会话内 `plugin_check(package=…)` | registry 版本清单 + tarball 里抽出的 `cordis.patch.yml` | M1–M16(除 M10、M13、M16) |
+| CLI `dsh-plugin-check [目录]` | 本地工作区文件 | M1–M17 + S1–S4(完整) |
+| CLI `--package <name@ver>` | `npm pack` 下载并解包的目录 | M1–M17 + S1–S4(除 M13,解包目录里没有 `tests/`) |
+| 会话内 `plugin_check(path=…)` | 本地工作区文件 | M1–M17 |
+| 会话内 `plugin_check(package=…)` | registry 版本清单 + tarball 里抽出的 `cordis.patch.yml` | M1–M17(除 M10、M13、M16) |
 
 M16 在解包目录里照判:`LICENSE` 被 npm 无条件打进 tarball,不受 `files` 白名单影响,
 所以「声明了 license 却没有正文」这件事在包里也看得见。
@@ -172,10 +179,13 @@ registry 路径根本没有文件;M13 还更窄一层,`tests/` 按惯例被 `fil
 
 - **warning**:`dsh.engine` 未声明。
 - **error**:`dsh.engine` 不是合法 SemVer 范围;或给了 `--runtime` 而该范围不覆盖它。
-- **诚实说明**:核对下来,**上游目前没有任何代码读 `dsh.engine`** —— 它是约定,不是
-  被强制的契约(2.0.17 / DSH 0.2.0-rc.2 复核时仍然如此:宿主判兼容只看
-  `peerDependencies`,见 M7)。所以「未声明」只给 warning。一旦声明了,就按声明判:
-  自己写了范围又不覆盖目标运行时,是插件自己的矛盾,判 error 不冤。
+- **诚实说明**:核对下来,**上游任何版本都没有代码读 `dsh.engine`** —— 它是插件圈自己的
+  约定,不是被强制的契约(2.0.18 / DSH 0.2.1-rc.2 复核时仍然如此)。所以「未声明」只给
+  warning。一旦声明了,就按声明判:自己写了范围又不覆盖目标运行时,是插件自己的矛盾,
+  判 error 不冤 —— 但它的后果只是「声明不一致」,**不是**「装了打不开」。
+- **别跟 `engines.dsh` 搞混**:宿主 DSH 0.2.1 起真正会读的字段叫 `engines.dsh`
+  (见 M17),跟这里的 `dsh.engine` 是两个字段、两套后果。写对了 `dsh.engine` 不会让
+  宿主放行,写坏了 `engines.dsh` 才会让插件装了打不开。
 
 ### M7-peer-range — peer 范围与运行时的交集
 
@@ -208,10 +218,54 @@ registry 路径根本没有文件;M13 还更窄一层,`tests/` 按惯例被 `fil
 - **这条规则的由来**:本包 0.4.4 自己就因为 peer 只写到 0.1 而在 TokensCowork 0.6 上被
   停用,而当时的 M7 只给一条 warning、退出码还是 0。按 §6「error = 装进用户的 Cowork
   会坏」,这种情况必须判 error。
+- **warning(目标运行时 ≥ 0.2.1 且清单声明了 `engines.dsh`)**:这时候 peer **根本不参与
+  判定**(见 M17),所以同样的「范围不含运行时」在这个运行时上判 error 就是假阳性 ——
+  宿主不会因为它拦。但也不能闷掉:0.2.0 及以下的宿主只看 peer,同一个范围在 0.6 上照样
+  把插件停用。所以降级为 warning,并在措辞里把这件事说清。空范围与 `workspace:` 两条
+  同理降级,但**一定要报**,否则等于对 0.6 的用户隐瞒。
 - **上游锚点**:`packages/boot/app-boot/src/plugin-compatibility.ts` →
-  `evaluatePluginCompatibility`(`:61-88`,名字过滤 `:75`、`workspace:` 等价 `:76`、
-  `includePrerelease` 与空范围 `:77`)、`compatibility-preflight.ts:103-130` → 置
-  `disabled`、`profile.ts:675-676` → Profile bundle 的同一判定。
+  `evaluatePluginCompatibility`(名字过滤、`workspace:` 等价、`includePrerelease` 与空范围
+  都在 `unmetRequirements` 里)、`compatibility-preflight.ts` 的 `denial()` → 置
+  `disabled`、`profile.ts` → Profile bundle 的同一判定。
+
+### M17-engines-dsh — DSH 0.2.1 起宿主唯一看的兼容声明
+
+0.2.1 把 `evaluatePluginCompatibility` 改成了**两段**,文件抬头那行注释就是口径本身:
+`Evaluate plugin dsh requirements (engines.dsh, else dsh peers)`。
+
+1. 清单里只要有 `engines.dsh`,**就只按它判,dsh peer 一个都不看**;
+2. 没有 `engines.dsh`,才退回逐个比对 dsh peer(0.2.0 的老路,见 M7)。
+
+而 **0.2.0 的 app-boot 完全不读 `engines` 这个字段**(拿 0.2.0-rc.2 的真实宿主实测:
+下面每种写坏的写法它都放行)。于是同一份清单在 0.6 和 0.7 上会得出**相反**的结论。
+
+- **error(目标运行时 ≥ 0.2.1)**:`engines.dsh` 不含目标运行时。后果与 M7 的硬拦一字不差
+  —— 启动时整行 `disabled`,用户装了也打不开,原因只在 Desktop 的标准错误输出里。
+- **error(目标运行时 ≥ 0.2.1)**:`engines.dsh` 是空字符串。上游的 `satisfies()` 第一个
+  条件就是 `range.trim() !== ''`,空范围直接算不满足。
+- **error(目标运行时 ≥ 0.2.1)**:`engines.dsh` 写成 `workspace:^` / `workspace:~` /
+  `workspace:*`。**这条最容易写错**:那套「就是当前运行时」的等价**只对 peer 成立**,
+  写进 `engines.dsh` 会走 SemVer 判定、一律算不满足。上游的 JSDoc 自己写明了
+  "including any workspace: `engines.dsh`, are unmet"。
+- **error(目标运行时 ≥ 0.2.1)**:`engines` 不是对象,或 `engines.dsh` 不是字符串。上游
+  这时**直接抛错**,而 `compatibility-preflight.ts` 的 `denial()` 把抛错也当拒绝,理由写成
+  `its declared dsh requirements cannot be validated` —— 后果一样是整行停用。
+- **warning(目标运行时 < 0.2.1)**:以上每一条在 0.2.0 及以下都只是 warning,因为那些宿主
+  根本不读这个字段。判死会挡住「只在 0.6 上跑、还没来得及适配 0.7」的插件;不报则是在
+  用户升级到 0.7 的那一刻突然失效。
+- **warning(只要声明了就报一次)**:声明 `engines.dsh` 本身就意味着「0.2.1 以上只看它、
+  0.2.0 以下只看 peer」。市场插件所有用户都装最新版、同时装在 0.5/0.6/0.7 上,所以两处
+  都得写对。不想处理这件事的插件,**别声明这个字段**,让 peer 做唯一裁判就好 —— 本工具
+  自己的清单就是这么写的。
+- **上游锚点**:`packages/boot/app-boot/src/plugin-compatibility.ts` → `unmetRequirements`
+  (`engines.dsh` 分支、`satisfies()` 的空范围条件)、`evaluatePluginCompatibility` 的
+  JSDoc、`compatibility-preflight.ts` → `denial()` 的 catch 分支。判定结果里未满足项的字段
+  **0.2.0 叫 `peers`、0.2.1 改名 `requirements`**,读这个结果的代码两个名字都要认,否则会把
+  「被拦」读成「干净通过」。
+- **这条规则的由来**:本包 0.4.5 只认 peer,在 0.2.1 上两个方向都判错 ——
+  `engines.dsh` 没覆盖运行时时一声不响(漏判),`engines.dsh` 覆盖了而 peer 过时时判
+  error(假阳性)。两头都钉在 `tests/engines-dsh.test.mjs`,并由
+  `tests/host-truth.test.mjs` 跟真实宿主对拍。
 
 ### M8-node-engines / M9-license
 
@@ -384,8 +438,13 @@ S4 之所以要在子进程里做,是因为它**真的执行插件代码**:顶�
 ## 5. 上游变动后怎么复核
 
 上游一个版本升上去,这个检查器**可能要改,也可能完全不用改**。别猜,照下表看一遍
-就有答案。每格里的锚点都是本次(2026-10-16,desktop 2.0.17 / DSH 0.2.0-rc.2)实际
+就有答案。每格里的锚点都是本次(2026-10-20,desktop 2.0.18 / DSH 0.2.1-rc.2)实际
 读过的代码位置。
+
+**先跑对拍,再逐条看表**:拿新宿主跑一遍
+`DSH_TEST_RUNTIME=<宿主>/dsh-plugin-desktop/package.json node --test --test-concurrency=1 tests/host-truth.test.mjs`。
+它直接 import 上游的 `evaluatePluginCompatibility` 与我们的判级对拍,M6/M7/M17 漂没漂
+一眼就知道 —— 比读源码快,也比读源码可靠。红了再回表里找对应那行。
 
 | 规则 | 去看什么 | 什么情况下必须改 |
 | --- | --- | --- |
@@ -394,8 +453,9 @@ S4 之所以要在子进程里做,是因为它**真的执行插件代码**:顶�
 | M3 | `@deepseek-ai/cordis` 主版本、dsh 服务注册方式 | 身份对齐机制改变 → 重新划 `isIdentityCore` 的范围 |
 | M4 | market `src/install/service.ts:268` → `safeBundlePatch`(本仓逐字照抄在 `lib/contract.mjs`);`dsh-plugin-desktop/src/profile.ts` 的补丁路径 | 谓词改一个字 → 同步照抄,否则我们放行的包上游照拒 |
 | M5 | `dsh-plugin-desktop/src/module-resolution.ts` → `selectedOverlayCandidate` / `PackageOverlayNotFoundError` | 行 `name` 的解析语义变化 → 这条必须跟着改 |
-| M6 | 全仓搜 `dsh.engine` 有没有被真正读取(2.0.17 仍然无人读) | 一旦上游开始强制 → 「未声明」从 warning 升 error |
+| M6 | 全仓搜 `dsh.engine` 有没有被真正读取(2.0.18 仍然无人读;上游读的是另一个字段 `engines.dsh`,见 M17) | 一旦上游开始强制 → 「未声明」从 warning 升 error |
 | M7 | `app-boot/src/plugin-compatibility.ts` → `evaluatePluginCompatibility` 还在不在、名字过滤与 `workspace:`/空范围的口径有没有变、`compatibility-preflight.ts` 是停用还是改成别的处置;宿主提供的 `@deepseek-ai/dsh*` 版本;`@deepseek-ai/cordis` 是否并入同一条版本线 | 硬拦的触发版本变了 → 改 `PEER_GATE_SINCE`;名字过滤变了 → 同步 `isGatedPeer`;处置从「停用」变成别的 → 重判级别与措辞;版本变了只需更新 `CONTRACT.runtimes`;版本线合并 → 改 `isRuntimeVersioned` |
+| M17 | 同一个 `plugin-compatibility.ts` → `unmetRequirements` 的两段结构还在不在:`engines.dsh` 是否仍优先于 peer、`satisfies()` 的空范围条件、`workspace:` 等价是否扩大到 `engines.dsh`、形状错误是抛还是忽略;`PluginCompatibility` 里未满足项的字段名 | 优先级反转或字段改名 → 改 `readEnginesDsh` 与 `peersDecideCompatibility`;生效版本变了 → 改 `ENGINES_GATE_SINCE`;`workspace:` 开始对 `engines.dsh` 也等价 → 去掉那条 error;字段再改名 → 对拍用例里两个名字都要认 |
 | M8/M9 | 宿主 `engines.node`(现为 `^22.19.0 \|\| >=24.0.0`,记在 `HOST_NODE_ENGINES`)、上架元数据要求 | 宿主 Node 区间变化 → 同步常量 |
 | M10 | 无上游依赖(发布卫生) | 基本不用改 |
 | M11 | `vendor/loader/src/config/group.ts:64`(duplicate id 抛出)、`tree.ts:8`(`EntryTree.sep`)、`dsh-plugin-desktop/src/profile.ts:633-646` → `assertUniqueEntryIds`、`desktop-market.ts:28-39` → `DESKTOP_MARKET_IDENTITIES` | 分隔符或保留 id 集合变化 → 同步 `RESERVED_ROW_IDS` / `RESERVED_ROW_NAMES`;唯一性作用域改成全局 → 改 `checkRowIdentity` 的按层逻辑 |

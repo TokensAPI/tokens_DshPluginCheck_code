@@ -5,7 +5,7 @@
  * (DSH 0.2.0-rc.2)后被宿主在启动时停用,而当时的 M7 只报一条 warning,
  * CLI 退出码仍是 0。所以这一组用例盯两件事:
  *  1. 会被宿主拦的情况必须判 error,0.1 上的同一条仍是 warning;
- *  2. **本包自己的清单**在两条产品线的运行时上都过得去(回归闸门)。
+ *  2. **本包自己的清单**在三条产品线的运行时上都过得去(回归闸门)。
  * 锚点见 lib/contract.mjs 的「DSH 0.2 的 peer 硬拦」。
  * ============================================================ */
 import { test } from 'node:test'
@@ -18,8 +18,8 @@ import { checkEngine, checkPeerRanges, hostBlocksPeerMismatch } from '../lib/sem
 const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
 const of = (findings, level) => findings.filter(finding => finding.level === level)
 
-/** 两条产品线实际装的 DSH 运行时:0.5.x 与 0.6.0。 */
-const PRODUCT_RUNTIMES = ['0.1.5-rc.2', '0.2.0-rc.2']
+/** 三条产品线实际装的 DSH 运行时:0.5.x、0.6.x、0.7.0。 */
+const PRODUCT_RUNTIMES = ['0.1.5-rc.2', '0.2.0-rc.2', '0.2.1-rc.2']
 
 test('硬拦从 0.2 的预发布版就开始,0.1 的运行时没有这道闸', () => {
   for (const runtime of ['0.1.0-rc.8', '0.1.3-alpha.1', '0.1.5-rc.2', '0.1.9']) {
@@ -86,7 +86,7 @@ test('M7:空范围 semver 当作"全都满足",宿主直接判不兼容', () => 
   assert.deepEqual(checkPeerRanges({ peerDependencies: { '@deepseek-ai/dsh-tools': '' } }, '0.1.3-alpha.1'), [])
 })
 
-test('回归闸门:本包自己的 peer 与 engine 覆盖两条产品线的运行时', () => {
+test('回归闸门:本包自己的 peer 与 engine 覆盖三条产品线的运行时', () => {
   for (const runtime of PRODUCT_RUNTIMES) {
     assert.deepEqual(of(checkPeerRanges(manifest, runtime), 'error'), [], `peer 挡住了 ${runtime}`)
     assert.deepEqual(of(checkEngine(manifest, runtime), 'error'), [], `engine 挡住了 ${runtime}`)

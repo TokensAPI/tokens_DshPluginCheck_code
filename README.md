@@ -42,7 +42,7 @@ npx @tokensapi/dsh-plugin-check --package @scope/name@1.2.3 --runtime 0.2.0-rc.2
 | M3-core-peer | error | `@deepseek-ai/cordis*`、`@deepseek-ai/dsh*` 只能是 peerDependencies | 双内核实例 → Symbol 不等 → 服务注册对不上 → **Cowork 启动失败** |
 | M4-bundle | error | `dsh.bundle.patch` 必填、文件存在、能解析出插件行,且路径形状满足上游 `safeBundlePatch`(相对路径、无反斜杠、无 `..`、段内无冒号、≤512 字节) | 宿主无法把插件挂进加载树;形状不合规则受控安装验证器直接拒绝,用户端只剩手动命令 |
 | M5-row-scope | error | 补丁行只能指向本包(或其子路径) | 插件行劫持挂载其他包 |
-| M6-engine | error/warning | `dsh.engine` 声明目标运行时 SemVer 范围;与 `--runtime` 不相交为 error(未声明为 warning——上游目前不强制读取此字段) | 装进不适配的宿主版本 |
+| M6-engine | error/warning | `dsh.engine` 声明目标运行时 SemVer 范围;与 `--runtime` 不相交为 error(未声明为 warning——这是插件自己的约定字段,上游任何版本都不读它) | 声明与目标运行时自相矛盾 |
 | M7-peer-range | error/warning | 核心 peer(`@deepseek-ai/cordis*`、`@deepseek-ai/dsh*`)的范围必须合法;`dsh-*` 的范围应包含目标运行时 | 范围写坏则受控安装装不出来;不含目标运行时则宿主升级后接口错配 |
 | M8-node-engines | warning | 建议声明 `engines.node`,且要与宿主的 `^22.19.0 \|\| >=24.0.0` 有交集 | 语法/API 不可用;无交集则安装阶段报 unsupported engine |
 | M9-license | warning | 建议声明 license | 分发合规 |
@@ -53,6 +53,7 @@ npx @tokensapi/dsh-plugin-check --package @scope/name@1.2.3 --runtime 0.2.0-rc.2
 | M14-publish-target | warning | 声明了 `publishConfig.registry`,且是 https URL | 不声明时发布目标取决于执行机器的 npm 配置,私有插件会就这么发到公共源,而版本一旦发出不可撤回。**不断言**具体源:发到公共 npm 是合法选择 |
 | M15-market-i18n | warning | `tokenscowork.displayName` / `summary` 两个 locale 都非空,且英文≠中文 | 市场从**已发布的包**里读这段,读不到才回退后台存的中文;把中文复制进 `en-US` 能骗过非空检查,英文 locale 下等于没填 |
 | M16-license-file | warning | 声明了 `license` 就要有许可证正文文件 | 下游拿到包只看到一个 SPDX 标识,无法确认授权条款 |
+| M17-engines-dsh | error/warning | `engines.dsh` 的形状与范围:**DSH 0.2.1 起它是宿主唯一看的兼容声明,dsh peer 完全不看**;不覆盖目标运行时、空范围、`workspace:*`、形状不对都判 error(目标运行时 < 0.2.1 时降为 warning,那些宿主不读这个字段) | 宿主启动时整行停用,用户装了也打不开;声明了它还会让同一个包在 0.6 与 0.7 上走两条判定 |
 | S1-pack | error | `npm pack --ignore-scripts` 必须成功 | 包本身发布不出来 |
 | S2-install | error/warning | 按你声明的依赖必须装得出来;宿主内核包(`@deepseek-ai/*`)的内部版本在公开源取不到时降级为 warning 并跳过冒烟 | 用户受控安装会同样失败 |
 | S3/S4-apply | error | 每个补丁行:入口可解析、`import` 不抛、`ctx.plugin()` 应用不抛(声明 `inject` 等待服务注入属正常,不算失败) | **启动链击穿**——一行 import 失败会拖死整棵插件树 |
@@ -65,7 +66,7 @@ npx @tokensapi/dsh-plugin-check --package @scope/name@1.2.3 --runtime 0.2.0-rc.2
 `contract` 字段。
 
 ```
-契约基线 2026-10-16 · desktop 2.0.17 / market 0.1.0-dev.0 · 已核对运行时 0.1.0-rc.8、0.1.3-alpha.1、0.2.0-rc.2
+契约基线 2026-10-20 · desktop 2.0.18 / market 0.1.0-dev.0 · 已核对运行时 0.1.0-rc.8、0.1.3-alpha.1、0.1.5-rc.2、0.2.0-rc.2、0.2.1-rc.2
 ```
 
 `--runtime` 传了核对范围之外的版本,会多一条 **C0-contract** warning,明说"这个版本
@@ -103,21 +104,33 @@ plugin_check(package="@scope/name", version="1.2.3")
 }
 ```
 
-这个字段目前**没有被上游强制读取**(2026-10-16 核对,DSH 0.2 仍然如此),它的作用是让
-体检能判断你与目标运行时是否相容:声明了,`--runtime` 越出范围时会直接报 error;不声明,
-这一层就判不了。
+这个字段**上游任何版本都不读**(2026-10-20 核对,DSH 0.2.1 仍然如此),它是插件圈自己的
+约定,作用是让体检能判断你与目标运行时是否相容:声明了,`--runtime` 越出范围时会直接报
+error;不声明,这一层就判不了。
 
-**真正决定插件能不能加载的是 `peerDependencies`**:DSH 0.2 起宿主启动时只按
-`@deepseek-ai/dsh` / `@deepseek-ai/dsh-*` 的 peer 范围判兼容,不满足就把插件停用,而且
-原因只打在 Desktop 的标准错误输出里。市场插件所有用户都装最新版,所以这个范围要同时
-覆盖还在服务的 0.1 和当前的 0.2,例如 `">=0.1.0-rc.8 <0.3.0-0"`;写死几个精确版本,
-宿主升一个补丁版就会把插件挡在外面(M7 会在目标运行时 ≥ 0.2 时直接报 error)。
+> **注意别写混**:宿主 DSH 0.2.1 起真正会读的字段是 **`engines.dsh`**,跟这里的
+> `dsh.engine` 是两个字段。写对 `dsh.engine` 不会让宿主放行;写坏 `engines.dsh` 才会让
+> 插件装了打不开。
+
+**真正决定插件能不能加载的是 `peerDependencies`** —— 除非你声明了 `engines.dsh`:
+
+- **DSH 0.2.0 及以下**:宿主启动时只按 `@deepseek-ai/dsh` / `@deepseek-ai/dsh-*` 的 peer
+  范围判兼容,`engines.dsh` 完全不读。不满足就把插件停用,而且原因只打在 Desktop 的标准
+  错误输出里。
+- **DSH 0.2.1 起**:清单里只要有 `engines.dsh`,宿主**只按它判、dsh peer 一个都不看**;
+  没有这个字段才退回比对 peer。所以声明它意味着同一个包在 0.6 和 0.7 上走两条不同的判定,
+  两处都得写对(M17 会提示这件事)。**不想处理这个分叉,就别声明 `engines.dsh`**,让 peer
+  做唯一裁判 —— 本工具自己的清单就是这么写的。
+
+市场插件所有用户都装最新版,所以 peer 范围要同时覆盖还在服务的 0.1 和当前的 0.2.x,例如
+`">=0.1.0-rc.8 <0.3.0-0"`;写死几个精确版本,宿主升一个补丁版就会把插件挡在外面
+(M7 会在目标运行时 ≥ 0.2 时直接报 error)。
 
 ## CI 集成示例
 
 ```yaml
 # .github/workflows/check.yml
-- run: npx @tokensapi/dsh-plugin-check --runtime 0.2.0-rc.2 --strict
+- run: npx @tokensapi/dsh-plugin-check --runtime 0.2.1-rc.2 --strict
 ```
 
 ## 上架流程中的位置
