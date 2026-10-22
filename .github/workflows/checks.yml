@@ -41,3 +41,13 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+      # CI has no staged DSH host, so the real-host contract cases (HOST-01…15)
+      # cannot run here. This step prints their NOT EXECUTED list and exits
+      # non-zero on purpose — `continue-on-error` keeps CI green while making it
+      # impossible to read a green run as "the host contracts passed". The gate
+      # that really runs them is TokensCowork's product check, which sets
+      # DSH_HOST_ROOT to a staged host (agent-hub T0047).
+      - name: Real-host contracts (not executed without a host)
+        continue-on-error: true
+        run: npm run check:host

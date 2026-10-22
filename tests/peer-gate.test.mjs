@@ -13,7 +13,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import semver from 'semver'
 import { PEER_GATE_SINCE, isGatedPeer, isRuntimeVersioned } from '../lib/contract.mjs'
-import { checkEngine, checkPeerRanges, hostBlocksPeerMismatch } from '../lib/semver-rules.mjs'
+import { checkEngine, checkPeerRanges, coversNextMajor, hostBlocksPeerMismatch } from '../lib/semver-rules.mjs'
 
 const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
 const of = (findings, level) => findings.filter(finding => finding.level === level)
@@ -98,7 +98,44 @@ test('回归闸门:本包自己的 peer 与 engine 覆盖三条产品线的运�
     for (const runtime of PRODUCT_RUNTIMES) {
       assert.equal(semver.satisfies(runtime, range, { includePrerelease: true }), true, `${name}@"${range}" 不含 ${runtime}`)
     }
-    // 0.3 没核对过,范围不该把它放进来 —— 否则等于替未知的上游变动打包票。
-    assert.equal(semver.satisfies('0.3.0-rc.1', range, { includePrerelease: true }), false, `${name}@"${range}" 不该覆盖 0.3`)
+    // 上界口径(用户 2026-10-22):只挡大版本。0.3 这类未核对过的小版本要
+    // **放进来** —— 内核跨 0.x 小版本时,契约全绿的插件不该被迫重发一版;
+    // "没核对过"由 C0-contract 的 warning 说,不靠 peer 上界堵。
+    assert.equal(semver.satisfies('0.3.0-rc.1', range, { includePrerelease: true }), true,
+      `${name}@"${range}" 的上界卡在 0.3 以下 —— 新口径是上界不低于下一个大版本`)
+    // 真正要挡的是大版本:1.0 得挡住。
+    assert.equal(semver.satisfies('1.0.0', range, { includePrerelease: true }), false,
+      `${name}@"${range}" 把 1.0 也放进来了,上界等于没写`)
+    assert.equal(coversNextMajor(range, '0.2.1-rc.2'), true, `${name}@"${range}" 覆盖不到下一个大版本`)
   }
+})
+
+test('M7:上界卡在 0.x 小版本上要提示放宽,覆盖到大版本则不提示', () => {
+  // 旧口径(0.4.6 及以前自己就是这么写的):当下不拦,但下次内核升小版本
+  // 就会把插件挡在加载前。
+  const narrow = checkPeerRanges(
+    { peerDependencies: { '@deepseek-ai/dsh-tools': '>=0.1.0-rc.8 <0.3.0-0' } },
+    '0.2.1-rc.2',
+  )
+  assert.deepEqual(of(narrow, 'error'), [])
+  assert.equal(of(narrow, 'warning').length, 1)
+  assert.match(of(narrow, 'warning')[0].message, /上界低于下一个大版本/u)
+  assert.match(of(narrow, 'warning')[0].message, /1\.0\.0-0/u)
+  // 新口径与开区间都不该提示。
+  for (const range of ['>=0.1.0-rc.8 <1.0.0-0', '>=0.1.0-rc.8', '>=0.1.0 <2.0.0-0']) {
+    assert.deepEqual(checkPeerRanges({ peerDependencies: { '@deepseek-ai/dsh-tools': range } }, '0.2.1-rc.2'), [],
+      range)
+  }
+  // cordis 不是宿主会比对的 peer,也不跟 DSH 同一条版本线 —— 不要拿这条规则
+  // 去说它的上界。
+  assert.deepEqual(
+    checkPeerRanges({ peerDependencies: { '@deepseek-ai/cordis': '>=4.0.1 <4.1.0-0' } }, '0.2.1-rc.2'),
+    [],
+  )
+  // 范围压根不含运行时的那条路径已经有自己的 error/warning,不叠这条提示。
+  const outdated = checkPeerRanges(
+    { peerDependencies: { '@deepseek-ai/dsh-tools': '0.1.0-rc.8' } },
+    '0.2.1-rc.2',
+  )
+  assert.equal(outdated.filter(finding => /上界低于/u.test(finding.message)).length, 0)
 })

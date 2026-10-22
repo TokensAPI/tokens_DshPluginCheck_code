@@ -1,6 +1,6 @@
 {
   "name": "@tokensapi/dsh-plugin-check",
-  "version": "0.4.6",
+  "version": "0.4.7",
   "description": "TokensCowork/DSH 插件合格性体检:CLI 一条命令判定插件能否安全装入宿主;装入 Cowork 后提供会话内 plugin_check 工具。",
   "tokenscowork": {
     "displayName": {
@@ -25,7 +25,8 @@
     "locale/*.json"
   ],
   "scripts": {
-    "test": "node --test \"tests/*.test.mjs\""
+    "test": "node --test --test-concurrency=1 \"tests/*.test.mjs\"",
+    "check:host": "node scripts/check-host.mjs"
   },
   "engines": {
     "node": ">=22.0.0"
@@ -50,10 +51,10 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": ">=4.0.1 <4.1.0-0",
-    "@deepseek-ai/dsh-tools": ">=0.1.0-rc.8 <0.3.0-0"
+    "@deepseek-ai/dsh-tools": ">=0.1.0-rc.8 <1.0.0-0"
   },
   "dsh": {
-    "engine": ">=0.1.0-rc.8 <0.3.0-0",
+    "engine": ">=0.1.0-rc.8 <1.0.0-0",
     "bundle": {
       "patch": "./cordis.patch.yml"
     }

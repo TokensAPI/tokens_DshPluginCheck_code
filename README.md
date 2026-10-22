@@ -43,7 +43,7 @@ npx @tokensapi/dsh-plugin-check --package @scope/name@1.2.3 --runtime 0.2.0-rc.2
 | M4-bundle | error | `dsh.bundle.patch` 必填、文件存在、能解析出插件行,且路径形状满足上游 `safeBundlePatch`(相对路径、无反斜杠、无 `..`、段内无冒号、≤512 字节) | 宿主无法把插件挂进加载树;形状不合规则受控安装验证器直接拒绝,用户端只剩手动命令 |
 | M5-row-scope | error | 补丁行只能指向本包(或其子路径) | 插件行劫持挂载其他包 |
 | M6-engine | error/warning | `dsh.engine` 声明目标运行时 SemVer 范围;与 `--runtime` 不相交为 error(未声明为 warning——这是插件自己的约定字段,上游任何版本都不读它) | 声明与目标运行时自相矛盾 |
-| M7-peer-range | error/warning | 核心 peer(`@deepseek-ai/cordis*`、`@deepseek-ai/dsh*`)的范围必须合法;`dsh-*` 的范围应包含目标运行时 | 范围写坏则受控安装装不出来;不含目标运行时则宿主升级后接口错配 |
+| M7-peer-range | error/warning | 核心 peer(`@deepseek-ai/cordis*`、`@deepseek-ai/dsh*`)的范围必须合法;`dsh-*` 的范围应包含目标运行时;上界卡在 0.x 小版本上(如 `<0.3.0-0`)给 warning 提示放宽到 `<1.0.0-0` | 范围写坏则受控安装装不出来;不含目标运行时则宿主升级后接口错配;窄上界会在内核升小版本时把契约全绿的插件挡在加载前,只能为改一行声明重发一版 |
 | M8-node-engines | warning | 建议声明 `engines.node`,且要与宿主的 `^22.19.0 \|\| >=24.0.0` 有交集 | 语法/API 不可用;无交集则安装阶段报 unsupported engine |
 | M9-license | warning | 建议声明 license | 分发合规 |
 | M10-secrets | error/warning | 发布内容不得包含 `.env`、私钥等凭据样式文件 | 凭据泄露 |
@@ -73,7 +73,7 @@ npx @tokensapi/dsh-plugin-check --package @scope/name@1.2.3 --runtime 0.2.0-rc.2
 没核对过,结论可能过时或过严",不假装照样有效。
 
 每条规则锚在上游哪个文件/符号、上游升级后逐条怎么复核,见
-[`docs/CHECKS.md` §5](docs/CHECKS.md)。
+[`docs/CHECKS.md` §6](docs/CHECKS.md)。
 
 ## 会话内体检(装进 Cowork)
 
@@ -98,7 +98,7 @@ plugin_check(package="@scope/name", version="1.2.3")
 ```json
 {
   "dsh": {
-    "engine": ">=0.1.0-rc.8 <0.3.0-0",
+    "engine": ">=0.1.0-rc.8 <1.0.0-0",
     "bundle": { "patch": "./cordis.patch.yml" }
   }
 }
@@ -122,9 +122,41 @@ error;不声明,这一层就判不了。
   两处都得写对(M17 会提示这件事)。**不想处理这个分叉,就别声明 `engines.dsh`**,让 peer
   做唯一裁判 —— 本工具自己的清单就是这么写的。
 
-市场插件所有用户都装最新版,所以 peer 范围要同时覆盖还在服务的 0.1 和当前的 0.2.x,例如
-`">=0.1.0-rc.8 <0.3.0-0"`;写死几个精确版本,宿主升一个补丁版就会把插件挡在外面
-(M7 会在目标运行时 ≥ 0.2 时直接报 error)。
+怎么写这个范围(2026-10-22 起的口径):
+
+- **下界取你真实验证过的那个内核**,别替没验证过的更老运行时背书。
+- **上界只挡大版本**,写 `<1.0.0-0`。例:`">=0.1.0-rc.8 <1.0.0-0"`。
+- 写死几个精确版本,宿主升一个补丁版就会把插件挡在外面(M7 会在目标运行时 ≥ 0.2 时
+  直接报 error);上界卡在 `<0.3.0-0` 这类 0.x 小版本上,M7 会给一条 warning 提示放宽。
+
+为什么上界只挡大版本:版本号预测不了兼容性。DSH 0.2.0 → 0.2.1 这个 rc 小版本就把一个
+插件的网关调用全打坏了,而 0.2.1 → 0.2.2 完全可能什么都不影响。窄上界的实际效果是
+「内核每升一个小版本,所有契约全绿的插件都得为改一行声明重发一版」。真正的守门人是
+**对真实宿主跑一遍契约用例**(见下一节),不是声明里的上界;「这个运行时没核对过」
+由 C0-contract 的 warning 负责说,不靠 peer 上界堵。
+
+## 真实宿主契约:`npm run check:host`
+
+本包自己也有一套「装进真实宿主再调一遍」的常驻用例 —— 插件自己的用例把宿主打桩时,
+宿主换了形状是测不出来的(DSH 0.2.1 把网关 `peer` 改必填,一个插件因此在四个产品版本上
+全坏,而它三千多条打桩用例一路全绿)。
+
+```bash
+# 单个宿主:DSH_HOST_ROOT 指向 staged 宿主的 dsh-plugin-desktop 目录
+DSH_HOST_ROOT=<...>/.build/desktop/dsh-plugin-desktop npm run check:host
+
+# 一次跑完三条产品线
+DSH_HOST_ROOTS="<0.7 的>;<0.6 的>;<0.5 的>" npm run check:host
+
+# 有效性复核:把被测路径按名字弄坏,要求指定的用例必须红
+npm run check:host -- --list-mutations
+npm run check:host -- --mutate peer-0.1-only
+```
+
+**没有宿主时它逐条打印 NOT EXECUTED 并以非 0 退出**,不伪造通过。`npm test` 里这些用例
+照样在,只是记为未执行、不让 CI 变红 —— 「没跑」和「跑过了」的区别由 `check:host` 的
+退出码负责。用例清单、断言的是什么、以及每条的变异对照见
+[docs/CHECKS.md §3](docs/CHECKS.md)。
 
 ## CI 集成示例
 

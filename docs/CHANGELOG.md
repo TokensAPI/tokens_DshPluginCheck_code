@@ -5,6 +5,55 @@
 
 ## [未发布]
 
+## [0.4.7] - 2026-10-22
+
+### 变更
+
+- **dsh peer 的上界口径改为"不低于下一个大版本"(`<1.0.0-0`)**。下界仍然取你**真实
+  验证过**的最低内核,上界只挡大版本 —— 不再写 `<0.3.0-0` 这类窄上界。M7 为此多一条
+  warning:范围覆盖了目标运行时、但上界卡在某个 0.x 小版本上时,提示放宽到下一个大版本。
+  判 warning 不判 error,因为窄上界在**当前**宿主上不拦任何东西,它的代价是将来那次
+  没必要的重发。
+  **为什么改**:版本号预测不了兼容性。0.2.0 → 0.2.1 这个 rc 小版本就把连接中心的网关
+  调用全打坏了,而 0.2.1 → 0.2.2 完全可能什么都不影响。窄上界的实际效果是"内核每升一个
+  小版本,所有契约全绿的插件都得为改一行声明重发一版";真正的守门人是下面那套**真实
+  宿主契约用例**,不是声明里的上界。"这个运行时没核对过"仍然会说,由 C0-contract 的
+  warning 负责,不靠 peer 上界堵。
+- 本包自己的 `peerDependencies['@deepseek-ai/dsh-tools']` 与 `dsh.engine` 同步改为
+  `>=0.1.0-rc.8 <1.0.0-0`。
+- `npm test` 加 `--test-concurrency=1`:本机内存紧时 `node --test` 按 CPU 数并行会 OOM。
+
+### 新增
+
+- **`npm run check:host`:真实宿主契约用例(HOST-01…15 + HOST-GUARD-01…04)**。
+  只认 `DSH_HOST_ROOT` —— staged 宿主的 `dsh-plugin-desktop` 目录(多个宿主用
+  `DSH_HOST_ROOTS`,`;` 分隔;0.4.6 的 `DSH_TEST_RUNTIME` 仍然认,内部折算成同一个根)。
+  **没有宿主时逐条打印 NOT EXECUTED 并以非 0 退出**,不伪造通过;`npm test` 里这些用例
+  照样在,只是记为未执行、不让仓库 CI 变红。
+  - **HOST-01…11 起一个真实宿主**:宿主自带的 launcher 起一个一次性 `$DSH_HOME` profile,
+    由真实加载器按本包自己的 `cordis.patch.yml` 把**本包 `files` 白名单声明的那份文件集**
+    装进去,宿主侧一个桩都不打。然后把本插件用到的每个宿主接口各真调一次:
+    `ctx.tools.register` / `schemas()` / `executionMode()` / `execute()`(连 `output.schema`
+    校验与 `output.render` 投影)、`inject: ['tools']`、从插件自己位置解析宿主运行时包、
+    以及宿主自己的 `evaluatePluginCompatibility` 对本包真实清单的判定(带"谁都满足不了的
+    假 peer"做反向对照)。本插件不订阅会话事件、不发网关调用、不注册 slot,所以**没有**
+    那几类断言 —— 只断言它真正依赖的东西,宿主新增字段/事件/endpoint 一律算兼容。
+  - **HOST-12…15 判定对拍**(原 `tests/host-truth.test.mjs`,不启动宿主):M6/M7/M17 与
+    上游 `evaluatePluginCompatibility` 逐条对拍;0.1 线没有这个导出时显式打印
+    **NOT DECLARED**,不当成通过。
+  - **夹具安全**:`$DSH_HOME` 一律是临时目录,HOST-11 断言宿主落地的每个路径都在临时
+    目录内、都不在用户真实的 `~/.dsh` 下,并比对启动前后用户 `~/.dsh` 顶层条目的大小与
+    mtime 完全相同。HOST-GUARD 那组(不需要宿主)反过来验这条守卫自己不是恒真。
+  - **变异验证**:`npm run check:host -- --mutate <名字>` 把被测路径按名字弄坏再装进去,
+    要求指定的那几条**必须红**、且不多不少。现有五条见 `--list-mutations`;
+    `peer-0.1-only` 复现本包 0.4.4 的事故:0.2.1 与 0.2.0 上 8 条红,同一个变异在
+    0.1.5 上**一条都不红**(证明它不是误报)。
+  - 实测:0.2.1-rc.2 / 0.2.0-rc.2 / 0.1.5-rc.2 三个 staged 宿主各 20/20 绿,一次跑完约 19 秒;
+    五条变异在三个宿主上全部 PASS。
+- 仓库 CI 多一步「Real-host contracts (not executed without a host)」:它按 NOT EXECUTED
+  以非 0 退出,用 `continue-on-error` 保持 CI 绿 —— 这样绿色 CI 永远不会被读成"宿主契约
+  也过了"。真正跑它的是 TokensCowork 的产品门禁。
+
 ## [0.4.6] - 2026-10-20
 
 ### 修复
@@ -139,7 +188,8 @@
 
 首个发布到私有源的版本（手工发布）。此前版本的改动见提交历史。
 
-[未发布]: https://github.com/TokensAPI/tokens_DshPluginCheck_code/compare/v0.4.6...HEAD
+[未发布]: https://github.com/TokensAPI/tokens_DshPluginCheck_code/compare/v0.4.7...HEAD
+[0.4.7]: https://github.com/TokensAPI/tokens_DshPluginCheck_code/releases/tag/v0.4.7
 [0.4.6]: https://github.com/TokensAPI/tokens_DshPluginCheck_code/releases/tag/v0.4.6
 [0.4.5]: https://github.com/TokensAPI/tokens_DshPluginCheck_code/releases/tag/v0.4.5
 [0.4.4]: https://github.com/TokensAPI/tokens_DshPluginCheck_code/releases/tag/v0.4.4

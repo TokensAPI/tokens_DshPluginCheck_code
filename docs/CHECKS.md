@@ -29,15 +29,17 @@
 0.1.5-rc.2 / 0.2.0-rc.2 / 0.2.1-rc.2 三份判定不是读源码推的,是**从真实 staged 宿主里
 import 上游的 `evaluatePluginCompatibility` 逐条对拍**出来的(0.1.5-rc.2 上这个导出
 **根本不存在** —— 这正是 M7「0.1 没有这道闸」的前提,现在由对拍每次确认),对拍脚本固化成了
-`tests/host-truth.test.mjs`(给 `DSH_TEST_RUNTIME` 指向宿主的
-`dsh-plugin-desktop/package.json` 即运行,CI 上没有宿主时整组跳过)。照抄上游谓词这件事
-本身会漂 —— 0.4.5 就是这么在 DSH 0.2.1 上判错的,所以现在有一道对拍兜着。
+`tests/host-truth.test.mjs`,连同「把本包装进真实宿主再调一遍」的那组一起由
+`npm run check:host` 跑(`DSH_HOST_ROOT` 指向宿主的 `dsh-plugin-desktop` 目录;没有宿主
+时逐条报 NOT EXECUTED 并以非 0 退出,见 [§3](#3-真实宿主契约host-01host-guard-04))。
+照抄上游谓词这件事本身会漂 —— 0.4.5 就是这么在 DSH 0.2.1 上判错的,所以现在有一道
+对拍兜着。
 
 `--runtime` 传了核对范围之外的版本时,会多出一条 **C0-contract** warning:明确
 告诉你「这个版本没核对过,结论可能过时或过严」,而不是假装照样有效。
 
 > 基线只保证「这些规则在这些上游版本上是对的」。上游升级后请走
-> [§5 上游变动后怎么复核](#5-上游变动后怎么复核)。
+> [§6 上游变动后怎么复核](#6-上游变动后怎么复核)。
 
 ---
 
@@ -205,6 +207,24 @@ registry 路径根本没有文件;M13 还更窄一层,`tests/` 按惯例被 `fil
   `workspace:*`。宿主把这三种直接当作「就是当前运行时」,所以不会拦;但发到 Registry
   之后这个依赖装不出来,所以仍然提示一句。`@deepseek-ai/cordis` 不走这条等价 ——
   它是 S2 冒烟真正要装的包,写成 `workspace:` 就是真装不出来,照判 error。
+- **warning(上界卡在 0.x 小版本上)**:范围**覆盖**了目标运行时,但上界低于下一个大版本
+  (如 `>=0.1.0-rc.8 <0.3.0-0`)。当下不拦任何东西 —— 代价是**将来那次没必要的重发**:
+  内核升一个小版本,这个插件就被宿主挡在加载前,即使那次升级其实没破坏任何契约。
+  判法不看字符串,是问 semver 一个具体问题:「从目标运行时到下一个大版本之间的全部版本,
+  这个范围都收不收?」收(含没写上界的开区间)就算合格。实现是
+  `lib/semver-rules.mjs` 的 `coversNextMajor`,"下一个大版本"由 `nextMajorFloor` 从目标
+  运行时算出来,**不写死 `1.0.0-0`** —— DSH 进了 1.x 之后这条规则要跟着抬到 `2.0.0-0`。
+  - **口径的由来(用户 2026-10-22 的决定)**:版本号预测不了兼容性。0.2.0 → 0.2.1 这个
+    rc 小版本就把连接中心的网关调用全打坏了,而 0.2.1 → 0.2.2 完全可能什么都不影响。
+    所以 dsh peer 只保留**真实验证过的下界**,上界只挡大版本;真正的守门人是
+    [§3 真实宿主契约](#3-真实宿主契约host-01host-guard-04)那套用例。"这个运行时没核对过"
+    仍然会说,由 C0-contract 负责,不靠 peer 上界堵。
+  - **只判 `isGatedPeer` 的那些**:`@deepseek-ai/cordis` 自成 4.x 版本线,拿"下一个大版本"
+    去说它的上界是范畴错误。
+  - **与"范围不含运行时"不叠加**:那条路径已经有自己的 error/warning,再加一条只是噪音。
+  - **M17-engines-dsh 故意没有这条规则**。`engines.dsh` 一旦声明就是 0.2.1+ 宿主的唯一
+    裁判,而本工具对它的建议是「不想处理 0.6/0.7 两条判定分叉,就别声明它」——
+    对一个劝你别写的字段再加一条"写宽一点"的提示,只会增加噪音。
 - **warning(目标运行时 < 0.2)**:给了 `--runtime` 而 peer 范围不含它。0.1 的 app-boot
   里没有 `evaluatePluginCompatibility`(实测 0.1.5-rc.2),不匹配也照样加载,所以这里
   预示的只是宿主升级之后的接口错配,判死会挡住「暂时还能跑、只是没来得及放宽范围」的插件。
@@ -216,7 +236,7 @@ registry 路径根本没有文件;M13 还更窄一层,`tests/` 按惯例被 `fil
   `@deepseek-ai/dsh`,要么带连字符;`isRuntimeVersioned` 的前缀判断会把
   `@deepseek-ai/dshfoo` 也算进来,拿它判死等于报死一个宿主根本不看的 peer。
 - **这条规则的由来**:本包 0.4.4 自己就因为 peer 只写到 0.1 而在 TokensCowork 0.6 上被
-  停用,而当时的 M7 只给一条 warning、退出码还是 0。按 §6「error = 装进用户的 Cowork
+  停用,而当时的 M7 只给一条 warning、退出码还是 0。按 §7「error = 装进用户的 Cowork
   会坏」,这种情况必须判 error。
 - **warning(目标运行时 ≥ 0.2.1 且清单声明了 `engines.dsh`)**:这时候 peer **根本不参与
   判定**(见 M17),所以同样的「范围不含运行时」在这个运行时上判 error 就是假阳性 ——
@@ -342,7 +362,7 @@ registry 路径根本没有文件;M13 还更窄一层,`tests/` 按惯例被 `fil
   `*.spec.*`(下探两层,跳过 `node_modules` 和点开头目录)。目录位置不强制,
   但两者都要有:只有命令没有用例,CI 绿灯是空的。
 - 判 **warning** 不判 error:有没有测试不影响这个包能不能装进宿主,跟 M8/M9
-  同级。判 error 会把大量能正常工作的插件挡在市场门外,与 §6 的级别定义冲突。
+  同级。判 error 会把大量能正常工作的插件挡在市场门外,与 §7 的级别定义冲突。
 - 只在能看到工作区的路径上跑,理由见 §1。
 
 ### M14-publish-target — 发布目标要写死在仓库里
@@ -379,7 +399,115 @@ registry 路径根本没有文件;M13 还更窄一层,`tests/` 按惯例被 `fil
 
 ---
 
-## 3. 隔离冒烟(S 系列,只在 CLI)
+## 3. 真实宿主契约(HOST-01…HOST-GUARD-04)
+
+命令:`npm run check:host`。实现:`tests/host-contract.test.mjs`(起宿主)、
+`tests/host-truth.test.mjs`(判定对拍)、`tests/host-fixture.test.mjs`(守卫自检),
+夹具在 `tests/support/`。
+
+### 为什么本工具自己也需要这一组
+
+本工具的判定是**照抄上游**写下来的,而照抄的东西会漂:0.4.5 就是这么在 DSH 0.2.1 上
+两头判错的。更一般地,插件自己的用例一旦把宿主打桩,宿主换了形状就测不出来 ——
+DSH 0.2.1 把网关 `peer` 从可选改必填,一个插件因此在四个产品版本上全坏,而它三千多条
+打桩用例一路全绿(agent-hub T0043/T0047)。所以这一组**宿主侧一个桩都不打**。
+
+### 跑法与"没执行"
+
+```bash
+DSH_HOST_ROOT=<...>/.build/desktop/dsh-plugin-desktop npm run check:host
+DSH_HOST_ROOTS="<0.7 的>;<0.6 的>;<0.5 的>" npm run check:host
+npm run check:host -- --list-mutations
+npm run check:host -- --mutate peer-0.1-only
+```
+
+- 对外只认 **`DSH_HOST_ROOT`** —— staged 宿主的 `dsh-plugin-desktop` 目录(T0047 统一
+  口径)。0.4.6 及以前的 `DSH_TEST_RUNTIME`(指向宿主的 `package.json`)继续认,内部
+  折算成同一个根。
+- **没有宿主时逐条打印 NOT EXECUTED 并以非 0 退出**,不伪造通过。`npm test` 里这些用例
+  照样在,只是记为未执行、不让仓库 CI 变红:"没跑"和"跑过了"的区别由 `check:host` 的
+  退出码负责。仓库 CI 另有一步专门把这份 NOT EXECUTED 清单打出来
+  (`continue-on-error`),这样绿色 CI 不会被读成"宿主契约也过了"。
+- **0.1 线没有 `evaluatePluginCompatibility`**:HOST-12…14 显式打印 **NOT DECLARED**,
+  不当成通过,也不当成失败 —— 那是宿主的事实,HOST-12 还会把它与
+  `hostBlocksPeerMismatch` 的判断对拍一遍。
+
+### 它装的是什么、碰的是什么
+
+宿主自带的 launcher 起一个一次性 `$DSH_HOME` profile,bundle 只要 `@deepseek-ai/dsh-base`;
+真实加载器按**本包自己的 `cordis.patch.yml`** 把 `@tokensapi/dsh-plugin-check` 挂进去。
+装进去的是**本包 `files` 白名单声明的那份文件集**(加 npm 无条件打包的 `LICENSE`),
+所以这一组顺带钉住了"发布出去的那份包真的能被宿主加载"。
+
+profile 的 `node_modules` 按 scope 拼:`@deepseek-ai` 指向宿主那一份(运行时包用
+module-local Symbol,多一份物理副本就对不上宿主的服务注册),第三方依赖实复制进插件
+自己的 `node_modules`。**不能**把宿主的 `node_modules` 整体链到 profile 前面 ——
+那样插件会解析到宿主钉住的副本,用例全绿却测的不是待测代码(T0047-A 登录踩过)。
+
+### 只断言插件真正依赖的东西
+
+本插件对宿主的全部依赖就是「注册一个会话内工具」:`dsh-tools` 的 `defineTool`、
+`ctx.tools` 的 register / schemas / executionMode / execute、`inject: ['tools']`、
+自己那一行补丁、以及 `createRequire` 能从插件自己的位置解析到宿主的运行时包。
+它**不订阅会话事件、不发网关调用、不注册 slot**,所以这里没有那几类断言 ——
+事件词表大小、endpoint 全清单、宿主内部字段顺序一概不碰,宿主新增什么都算兼容。
+形状校验一律交给宿主自己:返回值由宿主按我们声明的 `output.schema` 校验、内容由宿主
+调 `output.render` 产出、兼容判定由宿主自己的 `evaluatePluginCompatibility` 下。
+
+| 编号 | 断言的是插件依赖的什么 |
+| --- | --- |
+| **HOST-01** | 加载器解析到的是本次装进去的那份包(不是宿主自带的副本);插件解析到的 `dsh-tools` 是**宿主**那一份 |
+| **HOST-02** | 真实加载器挂起了插件,`ctx.tools.register` 收下了定义(`inject: ['tools']` 生效) |
+| **HOST-03** | 宿主投影给模型的 schema 带着插件声明的 `path` / `package` / `version` |
+| **HOST-04** | 宿主执行管线真跑一次 `plugin_check(path=…)`,返回值过了宿主的 `output.schema` 校验;被测目标就是它自己装进来那份目录,所以本包在真实宿主上自检也必须全绿 |
+| **HOST-05** | 宿主按 `output.render` 产出了模型可见内容,且解得开、带着结论字段 |
+| **HOST-06** | 参数互斥的错误被宿主收成 `isError` 结果而不是炸穿管线,且那个错误是**工具自己**抛的(不是 `UNKNOWN_TOOL`) |
+| **HOST-07** | `isConcurrencySafe` 在宿主的调度分类里就是 `parallel` |
+| **HOST-08** | `detectHostRuntime` 在真实宿主里读出的是宿主自己的版本(没有退回兜底常量) |
+| **HOST-09** | 宿主自己的兼容判定放行本包的真实清单;同一份清单加一条谁都满足不了的假 peer 必须被拦(反向对照),未满足项字段名两代都认 |
+| **HOST-10** | M8 照抄的宿主 `engines.node` 与宿主真实声明一致(拿的是**装进去那份副本**里的常量) |
+| **HOST-11** | 宿主落地的每个路径都在临时 `$DSH_HOME` 内、都不在用户真实 `~/.dsh` 下;启动前后用户 `~/.dsh` 顶层条目的大小与 mtime 完全相同 |
+| **HOST-12** | 宿主有没有 `evaluatePluginCompatibility` ⇔ `hostBlocksPeerMismatch` 的判断(M7 整套判级的前提) |
+| **HOST-13** | 16 份真实插件写得出来的清单,宿主拦 ⇔ 本工具 M6/M7/M17 报 error,逐条对拍 |
+| **HOST-14** | 未满足项的字段名:0.2.0 叫 `peers`,0.2.1 改名 `requirements`,两个都认 |
+| **HOST-15** | 插件入口对宿主的唯一值导入 `defineTool` 还在;`detectHostRuntime` 读出宿主版本 |
+| **HOST-GUARD-01…04** | 夹具自己的守卫不是恒真(不需要宿主,CI 上照常跑) |
+
+### 夹具绝不碰用户真实的 DSH 家目录
+
+`$DSH_HOME` 一律是 `mkdtemp` 出来的临时目录。HOST-11 不信"我们以为写在临时目录":
+探针把宿主实际看到的每个路径回报上来逐个断言,夹具再比对启动前后用户 `~/.dsh` 顶层
+条目的大小与 mtime。HOST-GUARD 那组反过来验这条守卫自己 —— 一个恒真的 `inside()`
+会让 HOST-11 变成装饰品。规则来自一次真实事故:另一个插件的契约夹具把配置键写错,
+它静默回落到真实 `~/.dsh/settings.yaml`,把用户的真实设置改成了测试值。
+
+### 变异验证:每条用例都要能被弄坏
+
+一条契约用例最常见的失效方式不是判错,是**空转** —— 断言的那条路径压根没被执行,
+被测代码整段删掉照样绿。所以 `--mutate <名字>` 把被测路径按名字弄坏再装进去,要求
+指定的那几条**必须红、且不多不少**;变异表在 `tests/support/mutations.mjs`,每条都是
+一次精确的字符串替换并断言只命中一次(替换不到就报错,免得代码改过之后变异静默失效)。
+
+| 变异 | 弄坏什么 | 应当变红 |
+| --- | --- | --- |
+| `no-register` | 不把工具注册进宿主注册表 | HOST-02…08 |
+| `empty-render` | `output.render` 返回空内容 | HOST-05 |
+| `frozen-runtime` | 不再探测运行时,一律用兜底常量(0.4.5 的形状) | HOST-08 |
+| `stale-node-engines` | M8 照抄的 `engines.node` 漂了 | HOST-10 |
+| `peer-0.1-only` | dsh peer 只写到 0.1(本包 0.4.4 的事故) | HOST-02…09,**只在 0.2 起的宿主上** |
+
+最后一条是整组的有效性证明:同一个变异在 0.2.1 与 0.2.0 上让 8 条红,在 **0.1.5 上一条
+都不红** —— 门禁拦的是真事故,不是在乱报。`frozen-runtime` 在 0.2.0-rc.2 上看不见
+(兜底常量恰好等于那个宿主的版本),这不是空转,正是**为什么**非得对每条产品线各跑
+一次:单看 0.6 这一条线,0.4.5 那类判错永远看不出来。
+
+HOST-01 / HOST-09 / HOST-13 没有单独的变异,因为它们自带反向对照:HOST-01 的
+解析一旦错到宿主副本上,整个夹具就起不来;HOST-09 的假 peer、HOST-13 里"宿主必拦"
+的那几份清单,本身就是证明评估器与判级都不在空转的那一半。
+
+---
+
+## 4. 隔离冒烟(S 系列,只在 CLI)
 
 实现:`lib/smoke-check.mjs`。在系统临时目录建一次性工作区,全程 `--ignore-scripts`
 (被测代码没有机会在检查器进程里跑安装钩子),插件代码只在一次性子进程里运行,
@@ -388,7 +516,7 @@ registry 路径根本没有文件;M13 还更窄一层,`tests/` 按惯例被 `fil
 | 步骤 | 做什么 | 判定 |
 | --- | --- | --- |
 | **S1-pack** | `npm pack --ignore-scripts` | 打不出包 → error |
-| **S2-install** | 按插件自己声明的 peer 范围装出一套真实运行时,插件本体走刚打出的 tgz(等价用户侧受控安装) | 装不出来 → error;例外见 §4 |
+| **S2-install** | 按插件自己声明的 peer 范围装出一套真实运行时,插件本体走刚打出的 tgz(等价用户侧受控安装) | 装不出来 → error;例外见 §5 |
 | **S3-rows** | 取补丁里 `disabled !== true` 的行 | 没有启用行 → warning(冒烟无事可做) |
 | **S4-apply** | 子进程里逐行 `require.resolve` → `import` → `new Context()` → `ctx.plugin(…)` | 任一阶段抛异常 → error,并标出是哪一段 |
 
@@ -398,7 +526,7 @@ S4 之所以要在子进程里做,是因为它**真的执行插件代码**:顶�
 
 ---
 
-## 4. 通用性:为什么这套规则不因插件而异
+## 5. 通用性:为什么这套规则不因插件而异
 
 **规则判的全是「插件与宿主之间的契约」,不是插件的业务行为。** 无论插件是做笔记、
 调模型还是控浏览器,它挂进宿主的方式完全一样:一份 `package.json`、一份
@@ -435,16 +563,18 @@ S4 之所以要在子进程里做,是因为它**真的执行插件代码**:顶�
 
 ---
 
-## 5. 上游变动后怎么复核
+## 6. 上游变动后怎么复核
 
 上游一个版本升上去,这个检查器**可能要改,也可能完全不用改**。别猜,照下表看一遍
 就有答案。每格里的锚点都是本次(2026-10-20,desktop 2.0.18 / DSH 0.2.1-rc.2)实际
 读过的代码位置。
 
-**先跑对拍,再逐条看表**:拿新宿主跑一遍
-`DSH_TEST_RUNTIME=<宿主>/dsh-plugin-desktop/package.json node --test --test-concurrency=1 tests/host-truth.test.mjs`。
-它直接 import 上游的 `evaluatePluginCompatibility` 与我们的判级对拍,M6/M7/M17 漂没漂
-一眼就知道 —— 比读源码快,也比读源码可靠。红了再回表里找对应那行。
+**先跑真实宿主契约,再逐条看表**:
+`DSH_HOST_ROOT=<新宿主>/dsh-plugin-desktop npm run check:host`([§3](#3-真实宿主契约host-01host-guard-04))。
+它把本包装进新宿主真调一遍,并直接 import 上游的 `evaluatePluginCompatibility` 与我们的
+判级对拍 —— M6/M7/M17 漂没漂、宿主的服务形状换没换,一眼就知道,比读源码快也比读
+源码可靠。红了再回表里找对应那行。改完用例之后,顺手跑一次
+`npm run check:host -- --mutate <名字>`,确认用例没有在新宿主上退化成空转。
 
 | 规则 | 去看什么 | 什么情况下必须改 |
 | --- | --- | --- |
@@ -454,7 +584,7 @@ S4 之所以要在子进程里做,是因为它**真的执行插件代码**:顶�
 | M4 | market `src/install/service.ts:268` → `safeBundlePatch`(本仓逐字照抄在 `lib/contract.mjs`);`dsh-plugin-desktop/src/profile.ts` 的补丁路径 | 谓词改一个字 → 同步照抄,否则我们放行的包上游照拒 |
 | M5 | `dsh-plugin-desktop/src/module-resolution.ts` → `selectedOverlayCandidate` / `PackageOverlayNotFoundError` | 行 `name` 的解析语义变化 → 这条必须跟着改 |
 | M6 | 全仓搜 `dsh.engine` 有没有被真正读取(2.0.18 仍然无人读;上游读的是另一个字段 `engines.dsh`,见 M17) | 一旦上游开始强制 → 「未声明」从 warning 升 error |
-| M7 | `app-boot/src/plugin-compatibility.ts` → `evaluatePluginCompatibility` 还在不在、名字过滤与 `workspace:`/空范围的口径有没有变、`compatibility-preflight.ts` 是停用还是改成别的处置;宿主提供的 `@deepseek-ai/dsh*` 版本;`@deepseek-ai/cordis` 是否并入同一条版本线 | 硬拦的触发版本变了 → 改 `PEER_GATE_SINCE`;名字过滤变了 → 同步 `isGatedPeer`;处置从「停用」变成别的 → 重判级别与措辞;版本变了只需更新 `CONTRACT.runtimes`;版本线合并 → 改 `isRuntimeVersioned` |
+| M7 | `app-boot/src/plugin-compatibility.ts` → `evaluatePluginCompatibility` 还在不在、名字过滤与 `workspace:`/空范围的口径有没有变、`compatibility-preflight.ts` 是停用还是改成别的处置;宿主提供的 `@deepseek-ai/dsh*` 版本;`@deepseek-ai/cordis` 是否并入同一条版本线;**DSH 是否进了 1.x** | 硬拦的触发版本变了 → 改 `PEER_GATE_SINCE`;名字过滤变了 → 同步 `isGatedPeer`;处置从「停用」变成别的 → 重判级别与措辞;版本变了只需更新 `CONTRACT.runtimes`;版本线合并 → 改 `isRuntimeVersioned`;上界口径由 `nextMajorFloor` 从目标运行时算出,进 1.x 后自动抬到 `2.0.0-0`,只需复核这条口径是否仍然是用户要的 |
 | M17 | 同一个 `plugin-compatibility.ts` → `unmetRequirements` 的两段结构还在不在:`engines.dsh` 是否仍优先于 peer、`satisfies()` 的空范围条件、`workspace:` 等价是否扩大到 `engines.dsh`、形状错误是抛还是忽略;`PluginCompatibility` 里未满足项的字段名 | 优先级反转或字段改名 → 改 `readEnginesDsh` 与 `peersDecideCompatibility`;生效版本变了 → 改 `ENGINES_GATE_SINCE`;`workspace:` 开始对 `engines.dsh` 也等价 → 去掉那条 error;字段再改名 → 对拍用例里两个名字都要认 |
 | M8/M9 | 宿主 `engines.node`(现为 `^22.19.0 \|\| >=24.0.0`,记在 `HOST_NODE_ENGINES`)、上架元数据要求 | 宿主 Node 区间变化 → 同步常量 |
 | M10 | 无上游依赖(发布卫生) | 基本不用改 |
@@ -473,7 +603,7 @@ S4 之所以要在子进程里做,是因为它**真的执行插件代码**:顶�
 
 ---
 
-## 6. 判定级别的含义
+## 7. 判定级别的含义
 
 - **error** — 装进用户的 Cowork 会坏(启动失败、挂不上、装不出来)。修好再发。
 - **warning** — 现在能用,但预示未来断裂,或者拿不到受控安装这类更好的路径。
